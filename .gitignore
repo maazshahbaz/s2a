@@ -1,0 +1,10 @@
+# .gitignore
+# Ignore datasets and unnecessary files
+csrRecords/
+csrRecords.zip
+*.out
+*.png
+__pycache__/
+*.pyc
+.env
+EOF
