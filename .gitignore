@@ -1,10 +1,88 @@
-# .gitignore
-# Ignore datasets and unnecessary files
-csrRecords/
-csrRecords.zip
-*.out
-*.png
+# Python
 __pycache__/
-*.pyc
+.claude
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
 .env
-EOF
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Audio files (for development)
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# Data files
+data/
+datasets/
+*.json
+*.csv
+!configs/*.json
+!examples/*.json
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,44 @@
+# Core dependencies
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers>=4.30.0
+librosa>=0.10.0
+soundfile>=0.12.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# ASR Models
+nemo_toolkit[asr]>=1.20.0
+openai>=1.0.0
+
+# API and Web
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+
+# Data processing
+pandas>=2.0.0
+pydub>=0.25.0
+webrtcvad>=2.0.10
+
+# Utilities
+python-dotenv>=1.0.0
+click>=8.1.0
+tqdm>=4.65.0
+requests>=2.31.0
+
+# System monitoring
+psutil>=5.9.0
+pynvml>=11.5.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Monitoring and logging
+loguru>=0.7.0
+prometheus-client>=0.17.0

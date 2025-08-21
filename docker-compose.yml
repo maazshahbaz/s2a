@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  s2a-api:
+    build: .
+    ports:
+      - "8000:8000"  # API port
+      - "9090:9090"  # Prometheus metrics port
+    volumes:
+      - ./logs:/app/logs
+      - /tmp/s2a:/tmp/s2a
+    environment:
+      - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
+      - S2A_DEVICE=cuda
+      - S2A_BATCH_SIZE=8
+      - S2A_MAX_CHUNK_DURATION=1440  # 24 minutes in seconds
+      - S2A_MIN_AUDIO_DURATION=5.0
+      - S2A_LOG_LEVEL=INFO
+      - S2A_ENABLE_MIXED_PRECISION=true
+      - S2A_GPU_MEMORY_FRACTION=0.8
+      - S2A_NUM_WORKERS=2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optional: Separate container for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - s2a-api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
