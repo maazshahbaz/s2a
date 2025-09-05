@@ -481,9 +481,9 @@ pytest tests/performance/ --benchmark
    - ✅ **Rate Limiting**: Per-minute/hour/day limits enforced
    - ✅ **Input Validation**: Comprehensive audio file validation
    - ✅ **Secure Key Storage**: HMAC-SHA256 hashed keys
+   - ✅ **Secret Management**: Use environment variables for API_KEY_SECRET
    - **Network Isolation**: Configure firewall rules
-   - **HTTPS/TLS**: Use reverse proxy (nginx/traefik)
-   - **Secret Management**: Use environment variables for API_KEY_SECRET
+   - **HTTPS/TLS**: Requires reverse proxy setup (not included)
 
 3. **Scaling**:
    - Multiple GPU support
