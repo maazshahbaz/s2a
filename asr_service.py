@@ -5,25 +5,22 @@ from pathlib import Path
 from typing import List, Dict, Union, Optional, Tuple
 import time
 from loguru import logger
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
 import librosa
 import soundfile as sf
-from pydub import AudioSegment
 import tempfile
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from chunking_utils import ChunkingManager, AudioChunk
 
-# NeMo imports with fallback
+# NeMo imports - required for this service
 try:
     import nemo.collections.asr as nemo_asr
     from nemo.core.config import hydra_runner
-    NEMO_AVAILABLE = True
     logger.info("NeMo toolkit available")
 except ImportError as e:
-    NEMO_AVAILABLE = False
-    logger.warning(f"NeMo toolkit not available: {e}. Will use Whisper fallback.")
+    logger.error(f"NeMo toolkit is required but not available: {e}")
+    raise ImportError("NeMo toolkit is required for this ASR service. Please install with: pip install nemo_toolkit[asr]")
 
 @dataclass
 class TranscriptionResult:
@@ -53,77 +50,48 @@ class NeMoASRService:
         self.model = None
         self.processor = None
         
-        # Initialize chunking managers for different models
-        self.nemo_chunking_manager = ChunkingManager(
+        # Initialize chunking manager for NeMo
+        self.chunking_manager = ChunkingManager(
             max_chunk_duration=24 * 60,  # 24 minutes for NeMo
             overlap_duration=5.0
-        )
-        self.whisper_chunking_manager = ChunkingManager(
-            max_chunk_duration=30,  # 30 seconds for Whisper optimal performance
-            overlap_duration=2.0
         )
         
         logger.info(f"Initializing ASR service with model: {model_name}")
         logger.info(f"Device: {device}, Batch size: {batch_size}")
         
-        self._load_model()
+        self._load_nemo_model()
         self._setup_h100_optimizations()
         
-    def _load_model(self):
-        # Try loading NeMo Parakeet first
-        if NEMO_AVAILABLE and "parakeet" in self.model_name.lower():
-            if self._try_load_nemo():
-                return
-        
-        # Fallback to Whisper
-        self._load_whisper_fallback()
-    
-    def _try_load_nemo(self):
+    def _load_nemo_model(self):
+        """Load NeMo Parakeet model - the only model supported"""
         try:
-            logger.info(f"Attempting to load NeMo Parakeet model: {self.model_name}")
+            logger.info(f"Loading NeMo Parakeet model: {self.model_name}")
             
             # Load NeMo Parakeet model
             self.model = nemo_asr.models.ASRModel.from_pretrained(self.model_name)
             
             # Move to device and optimize for H100
-            if self.device == "cuda":
+            if self.device == "cuda" and torch.cuda.is_available():
                 self.model = self.model.to(self.device)
-                # Enable mixed precision for H100
-                self.model = self.model.half() if torch.cuda.get_device_capability()[0] >= 8 else self.model
+                # Enable mixed precision for H100 (compute capability >= 8.0)
+                try:
+                    device_capability = torch.cuda.get_device_capability()
+                    if device_capability and device_capability[0] >= 8:
+                        self.model = self.model.half()
+                        logger.info("Enabled FP16 precision for H100 GPU")
+                except Exception as e:
+                    logger.warning(f"Could not check GPU capability: {e}. Using FP32.")
             
             self.model.eval()
             self.model_type = "nemo"
             
             logger.info(f"NeMo Parakeet model {self.model_name} loaded successfully")
             self._warmup_nemo_model()
-            return True
             
         except Exception as e:
-            logger.warning(f"Failed to load NeMo model {self.model_name}: {e}")
-            logger.info("Falling back to Whisper model...")
-            return False
+            logger.error(f"Failed to load NeMo model {self.model_name}: {e}")
+            raise RuntimeError(f"NeMo model loading failed: {e}")
     
-    def _load_whisper_fallback(self):
-        try:
-            logger.info("Loading Whisper Large V3 as fallback model...")
-            self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
-            self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3")
-            
-            if self.device == "cuda":
-                self.model = self.model.to(self.device)
-                # Enable mixed precision for H100
-                if torch.cuda.get_device_capability()[0] >= 8:
-                    self.model = self.model.half()
-            
-            self.model.eval()
-            self.model_type = "whisper"
-            
-            logger.info("Whisper model loaded successfully")
-            self._warmup_whisper_model()
-            
-        except Exception as e:
-            logger.error(f"Failed to load both NeMo and Whisper models: {e}")
-            raise
     
     def _setup_h100_optimizations(self):
         """Setup H100-specific optimizations"""
@@ -160,18 +128,6 @@ class NeMoASRService:
         except Exception as e:
             logger.warning(f"NeMo model warmup failed: {e}")
     
-    def _warmup_whisper_model(self):
-        logger.info("Warming up Whisper model...")
-        try:
-            dummy_audio = torch.randn(1, 16000 * 10).to(self.device)  # 10 seconds
-            with torch.no_grad():
-                features = self.processor(dummy_audio.cpu().numpy().squeeze(), 
-                                        sampling_rate=16000, 
-                                        return_tensors="pt").input_features.to(self.device)
-                _ = self.model.generate(features, max_length=50)
-            logger.info("Whisper model warmup completed")
-        except Exception as e:
-            logger.warning(f"Whisper model warmup failed: {e}")
     
     
     def preprocess_audio(self, audio_path: Union[str, Path]) -> Tuple[np.ndarray, float, bool]:
@@ -207,11 +163,11 @@ class NeMoASRService:
         if self.model_type == "nemo":
             # Use intelligent chunking for NeMo (24-minute chunks)
             logger.info(f"Using intelligent chunking for NeMo model (24-min chunks)")
-            return self.nemo_chunking_manager.process_long_audio(audio, sr)
+            return self.chunking_manager.process_long_audio(audio, sr)
         else:
             # Use smaller chunks for Whisper (30-second optimal)
             logger.info(f"Using optimal chunking for Whisper model (30-sec chunks)")
-            return self.whisper_chunking_manager.process_long_audio(audio, sr)
+            return self.chunking_manager.process_long_audio(audio, sr)
     
     def chunk_audio_simple(self, audio: np.ndarray, sr: int = 16000) -> List[np.ndarray]:
         """Fallback simple chunking method"""
@@ -239,6 +195,24 @@ class NeMoASRService:
         
         logger.info(f"Split {total_duration:.1f}s audio into {len(chunks)} chunks using {self.model_type} chunking")
         return chunks
+    
+    def transcribe_batch(self, audio_chunks: List[AudioChunk]) -> List[Dict]:
+        """Transcribe a batch of audio chunks using the appropriate model"""
+        if self.model_type == "nemo":
+            return self.transcribe_batch_nemo(audio_chunks)
+        elif self.model_type == "whisper":
+            # Convert AudioChunk objects to numpy arrays for Whisper
+            audio_arrays = []
+            for chunk in audio_chunks:
+                if hasattr(chunk, 'audio_data'):
+                    audio_arrays.append(chunk.audio_data)
+                elif hasattr(chunk, 'path'):
+                    # Load audio from file
+                    audio_data, _ = librosa.load(chunk.path, sr=16000)
+                    audio_arrays.append(audio_data)
+            return self.transcribe_batch_whisper(audio_arrays)
+        else:
+            raise ValueError(f"Unknown model type: {self.model_type}")
     
     def transcribe_batch_nemo(self, audio_chunks: List[AudioChunk]) -> List[Dict]:
         """Transcribe chunks using NeMo model with optimized batching"""
@@ -270,8 +244,16 @@ class NeMoASRService:
                 for j, (transcription, chunk) in enumerate(zip(transcriptions, batch_chunks)):
                     rtf = processing_time / (chunk.duration * len(batch_chunks))
                     
+                    # Convert NeMo Hypothesis to text
+                    if hasattr(transcription, 'text'):
+                        text = transcription.text
+                    elif isinstance(transcription, str):
+                        text = transcription
+                    else:
+                        text = str(transcription)
+                    
                     results.append({
-                        "text": transcription.strip(),
+                        "text": text.strip(),
                         "duration": chunk.duration,
                         "rtf": rtf,
                         "processing_time": processing_time / len(batch_chunks),
@@ -582,8 +564,8 @@ class NeMoASRService:
             "batch_size": self.batch_size,
             "max_chunk_duration": self.max_chunk_duration,
             "min_audio_duration": self.min_audio_duration,
-            "nemo_available": NEMO_AVAILABLE,
-            "chunking_strategy": "intelligent" if self.model_type == "nemo" else "optimal",
+            "nemo_available": True,  # Always true in NeMo-only service
+            "chunking_strategy": "intelligent",  # Always intelligent for NeMo
             "h100_optimizations": "H100" in torch.cuda.get_device_name(0) if torch.cuda.is_available() else False,
             **gpu_info
         }

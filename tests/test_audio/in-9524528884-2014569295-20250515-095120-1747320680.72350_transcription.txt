@@ -1,0 +1,14 @@
+=== S2A ASR Transcription Results ===
+Audio File: in-9524528884-2014569295-20250515-095120-1747320680.72350.wav
+Duration: 40.48s (0.67 minutes)
+Model: nemo
+Chunks Processed: 1
+Processing Time: 2.03s
+RTF: 0.050
+Performance: 20.0x real-time
+Generated: 2025-09-03 18:30:26.801909
+
+=== TRANSCRIPTION ===
+Hello? Hello? Hello? I can hear me? One moment, can you hear me? Yeah, I can hear you now. Better. Just a second. Yeah, no problem. Take it down.
+
+=== END ===

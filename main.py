@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -18,6 +18,7 @@ from audio_utils import AudioProcessor
 from batch_processor import BatchProcessor, BatchConfig, BatchJob
 from config import ASRConfig, get_settings
 from performance_monitor import get_performance_monitor
+from auth import auth, require_permission, update_usage, get_rate_limit_headers, APIKey
 
 class TranscriptionRequest(BaseModel):
     audio_file: str = Field(description="Path to audio file or file upload")
@@ -118,13 +119,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add CORS middleware with restricted origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",  # React development
+        "http://localhost:8080",  # Vue development
+        "https://your-domain.com"  # Production domain
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Dependency to get services
@@ -135,10 +140,18 @@ def get_services():
 
 @app.get("/", response_model=Dict[str, str])
 async def root():
-    return {"message": "S2A Speech-to-Text Microservice", "status": "running"}
+    return {
+        "message": "BytePulse AI S2A Speech-to-Text Microservice", 
+        "status": "running",
+        "version": "1.0.0",
+        "authentication": "required"
+    }
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check(services = Depends(get_services)):
+async def health_check(
+    services = Depends(get_services)
+):
+    """Health check endpoint - public access for monitoring"""
     asr_svc, audio_proc, batch_proc = services
     
     return HealthResponse(
@@ -151,15 +164,23 @@ async def health_check(services = Depends(get_services)):
 
 @app.post("/v1/transcribe", response_model=TranscriptionResponse)
 async def transcribe_sync(
+    request: Request,
+    response: Response,
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
+    key_info: APIKey = Depends(require_permission("transcribe")),
     services = Depends(get_services)
 ):
-    """Synchronous transcription endpoint"""
+    """Synchronous transcription endpoint - requires transcribe permission"""
     asr_svc, audio_proc, batch_proc = services
     job_id = str(uuid.uuid4())
     
+    # Add rate limit headers
+    headers = get_rate_limit_headers(request)
+    for key, value in headers.items():
+        response.headers[key] = value
+    print(audio_file)
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
@@ -177,12 +198,24 @@ async def transcribe_sync(
             validate=True
         )
         
-        # Check minimum duration
+        # Check minimum duration (both sync/async same rule)
         if audio_info['duration'] < asr_svc.min_audio_duration:
             return TranscriptionResponse(
                 job_id=job_id,
                 status="rejected",
-                text="",
+                text="Audio too short. Minimum duration is 5 seconds.",
+                duration=audio_info['duration'],
+                rtf=0,
+                processing_time=0
+            )
+        
+        # Check maximum duration for SYNC API (2 minutes max)
+        settings = get_settings()
+        if audio_info['duration'] > settings.max_sync_audio_duration:
+            return TranscriptionResponse(
+                job_id=job_id,
+                status="rejected", 
+                text=f"Audio too long for sync API. Maximum duration is {settings.max_sync_audio_duration/60:.0f} minutes. Please use async API for longer audio.",
                 duration=audio_info['duration'],
                 rtf=0,
                 processing_time=0
@@ -190,6 +223,9 @@ async def transcribe_sync(
         
         # Transcribe using ASR service
         result = await asr_svc.transcribe_audio(tmp_file_path)
+        
+        # Update usage statistics
+        update_usage(request, result.duration)
         
         return TranscriptionResponse(
             job_id=job_id,
@@ -214,17 +250,25 @@ async def transcribe_sync(
 
 @app.post("/v1/transcribe/async", response_model=Dict[str, str])
 async def transcribe_async(
+    request: Request,
+    response: Response,
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
     priority: int = 0,
     background_tasks: BackgroundTasks = BackgroundTasks(),
+    key_info: APIKey = Depends(require_permission("transcribe")),
     services = Depends(get_services)
 ):
-    """Asynchronous transcription endpoint"""
+    """Asynchronous transcription endpoint - requires transcribe permission"""
     asr_svc, audio_proc, batch_proc = services
     job_id = str(uuid.uuid4())
     
+    # Add rate limit headers
+    headers = get_rate_limit_headers(request)
+    for key, value in headers.items():
+        response.headers[key] = value
+    print(audio_file)
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
@@ -262,9 +306,16 @@ async def process_audio_background(
             validate=True
         )
         
-        # Check minimum duration
+        # Check minimum duration (both sync/async same rule)
         if audio_info['duration'] < asr_svc.min_audio_duration:
-            logger.info(f"Job {job_id}: Audio too short, skipping")
+            logger.info(f"Job {job_id}: Audio too short ({audio_info['duration']:.1f}s < {asr_svc.min_audio_duration:.1f}s), skipping")
+            return
+        
+        # Check maximum duration for ASYNC API (2 hours max)
+        from config import get_settings
+        settings = get_settings()
+        if audio_info['duration'] > settings.max_async_audio_duration:
+            logger.info(f"Job {job_id}: Audio too long ({audio_info['duration']:.1f}s > {settings.max_async_audio_duration:.1f}s), skipping")
             return
         
         # Submit to batch processor
@@ -292,9 +343,20 @@ async def process_audio_background(
             os.unlink(audio_path)
 
 @app.get("/v1/status/{job_id}", response_model=StatusResponse)
-async def get_transcription_status(job_id: str, services = Depends(get_services)):
-    """Get status of async transcription job"""
+async def get_transcription_status(
+    job_id: str,
+    request: Request,
+    response: Response,
+    key_info: APIKey = Depends(require_permission("status")),
+    services = Depends(get_services)
+):
+    """Get status of async transcription job - requires status permission"""
     asr_svc, audio_proc, batch_proc = services
+    
+    # Add rate limit headers
+    headers = get_rate_limit_headers(request)
+    for key, value in headers.items():
+        response.headers[key] = value
     
     # Try to get result from batch processor
     result_job = await batch_proc.batcher.get_result(job_id, timeout=0.1)
@@ -335,20 +397,47 @@ async def get_transcription_status(job_id: str, services = Depends(get_services)
     )
 
 @app.get("/v1/stats", response_model=Dict[str, Any])
-async def get_service_stats(services = Depends(get_services)):
-    """Get service performance statistics"""
+async def get_service_stats(
+    request: Request,
+    response: Response,
+    key_info: APIKey = Depends(require_permission("stats")),
+    services = Depends(get_services)
+):
+    """Get service performance statistics - requires stats permission"""
     asr_svc, audio_proc, batch_proc = services
+    
+    # Add rate limit headers
+    headers = get_rate_limit_headers(request)
+    for key, value in headers.items():
+        response.headers[key] = value
     
     return {
         "model_info": asr_svc.get_model_info(),
         "batch_processor": batch_proc.get_stats(),
-        "uptime": time.time() - app_start_time
+        "uptime": time.time() - app_start_time,
+        "api_key_info": {
+            "key_id": key_info.key_id,
+            "name": key_info.name,
+            "usage_count": key_info.usage_count,
+            "total_audio_minutes": key_info.total_audio_minutes
+        }
     }
 
 @app.delete("/v1/jobs/{job_id}")
-async def cancel_job(job_id: str, services = Depends(get_services)):
-    """Cancel a pending or processing job"""
+async def cancel_job(
+    job_id: str,
+    request: Request,
+    response: Response,
+    key_info: APIKey = Depends(require_permission("transcribe")),
+    services = Depends(get_services)
+):
+    """Cancel a pending or processing job - requires transcribe permission"""
     asr_svc, audio_proc, batch_proc = services
+    
+    # Add rate limit headers
+    headers = get_rate_limit_headers(request)
+    for key, value in headers.items():
+        response.headers[key] = value
     
     # Note: This is a simplified implementation
     # In production, you'd want more sophisticated job cancellation
@@ -365,7 +454,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=False,
         workers=1,  # Single worker due to GPU memory constraints
         log_level="info"

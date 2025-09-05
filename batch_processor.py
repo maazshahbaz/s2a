@@ -10,6 +10,7 @@ from loguru import logger
 from collections import deque
 import threading
 from enum import Enum
+from chunking_utils import AudioChunk
 
 class BatchStatus(Enum):
     PENDING = "pending"
@@ -27,11 +28,15 @@ class BatchJob:
     status: BatchStatus = BatchStatus.PENDING
     result: Optional[Dict] = None
     error: Optional[str] = None
+    # Add chunking support
+    audio_chunks: Optional[List[AudioChunk]] = None
+    stitch_function: Optional[Callable] = None
+    is_chunked: bool = False
 
 @dataclass
 class BatchConfig:
-    max_batch_size: int = 8
-    max_queue_size: int = 100
+    max_batch_size: int = 128  # Increased for higher throughput
+    max_queue_size: int = 500  # Increased for higher throughput
     processing_timeout: float = 300.0  # 5 minutes
     dynamic_batching: bool = True
     batch_timeout_ms: int = 100
@@ -149,7 +154,15 @@ class DynamicBatcher:
         audio1_duration = len(job1.audio_data) / job1.metadata.get('sample_rate', 16000)
         audio2_duration = len(job2.audio_data) / job2.metadata.get('sample_rate', 16000)
         
-        # Don't batch if duration difference is too large
+        # Separate long audios (>24min) from short audios for optimal processing
+        is_long_1 = audio1_duration > 24 * 60
+        is_long_2 = audio2_duration > 24 * 60
+        
+        # Don't batch long audios together (they need individual chunking)
+        if is_long_1 or is_long_2:
+            return False
+        
+        # For short audios, don't batch if duration difference is too large
         max_duration = max(audio1_duration, audio2_duration)
         min_duration = min(audio1_duration, audio2_duration)
         
@@ -159,33 +172,15 @@ class DynamicBatcher:
         return True
     
     async def collect_batch(self, timeout_ms: int = 100) -> List[BatchJob]:
-        jobs = []
-        deadline = time.time() + timeout_ms / 1000.0
-        
-        # Get at least one job
+        """Collect exactly one job per worker for optimal parallelism"""
         try:
             job = await asyncio.wait_for(
                 self.job_queue.get(), 
                 timeout=timeout_ms / 1000.0
             )
-            jobs.append(job)
+            return [job]  # Return single job for 1-job-per-worker approach
         except asyncio.TimeoutError:
-            return jobs
-        
-        # Collect additional jobs until timeout or batch is full
-        while (len(jobs) < self.config.max_batch_size and 
-               time.time() < deadline):
-            
-            try:
-                job = await asyncio.wait_for(
-                    self.job_queue.get(),
-                    timeout=max(0.01, deadline - time.time())
-                )
-                jobs.append(job)
-            except asyncio.TimeoutError:
-                break
-        
-        return jobs
+            return []  # No job available
     
     def get_stats(self) -> Dict[str, Any]:
         return {
@@ -199,7 +194,7 @@ class BatchProcessor:
     def __init__(self, 
                  asr_service,
                  config: BatchConfig = None,
-                 num_workers: int = 2):
+                 num_workers: int = 8):  # Increased for higher throughput
         
         self.asr_service = asr_service
         self.config = config or BatchConfig()
@@ -240,27 +235,14 @@ class BatchProcessor:
         
         while self._running:
             try:
-                # Collect a batch of jobs
+                # Collect exactly one job per worker
                 jobs = await self.batcher.collect_batch(self.config.batch_timeout_ms)
                 
                 if not jobs:
                     await asyncio.sleep(0.01)
                     continue
                 
-                # Optimize batch size based on GPU memory
-                optimal_size = self.batcher.gpu_manager.optimize_batch_size(
-                    len(jobs), self.config.max_batch_size
-                )
-                
-                if optimal_size < len(jobs):
-                    # Put excess jobs back in queue
-                    excess_jobs = jobs[optimal_size:]
-                    jobs = jobs[:optimal_size]
-                    
-                    for job in reversed(excess_jobs):  # LIFO for priority
-                        await self.batcher.job_queue.put(job)
-                
-                # Process the batch
+                # Process the single job (no batching optimization needed)
                 await self._process_batch(jobs, worker_name)
                 
             except asyncio.CancelledError:
@@ -274,66 +256,117 @@ class BatchProcessor:
         if not jobs:
             return
         
-        batch_start_time = time.time()
-        batch_id = f"batch-{int(batch_start_time)}-{len(jobs)}"
+        # Should only be 1 job per call now
+        job = jobs[0]
+        job_start_time = time.time()
         
-        logger.info(f"Worker {worker_name} processing {batch_id} with {len(jobs)} jobs")
+        logger.info(f"Worker {worker_name} processing job {job.job_id}")
         
-        # Mark jobs as processing
+        # Mark job as processing
         async with self.batcher._lock:
-            for job in jobs:
-                job.status = BatchStatus.PROCESSING
-                self.batcher.processing_jobs[job.job_id] = job
+            job.status = BatchStatus.PROCESSING
+            self.batcher.processing_jobs[job.job_id] = job
         
         try:
-            # Extract audio data for batch processing
-            audio_chunks = [job.audio_data for job in jobs]
+            # Check if audio needs chunking (>24 minutes)
+            sr = job.metadata.get('sample_rate', 16000)
+            duration = len(job.audio_data) / sr
             
-            # Process batch using ASR service
-            results = await asyncio.get_event_loop().run_in_executor(
-                self.executor,
-                self.asr_service.transcribe_batch,
-                audio_chunks
-            )
-            
-            # Update jobs with results
-            processing_time = time.time() - batch_start_time
-            
-            for job, result in zip(jobs, results):
-                job.result = result
-                job.status = BatchStatus.COMPLETED if not result.get('error') else BatchStatus.FAILED
-                job.error = result.get('error')
+            if duration > 24 * 60:  # 24 minutes
+                logger.info(f"Job {job.job_id}: Long audio ({duration/60:.1f}min), using intelligent chunking")
                 
-                # Move to result store
-                async with self.batcher._lock:
-                    self.batcher.result_store[job.job_id] = job
-                    if job.job_id in self.batcher.processing_jobs:
-                        del self.batcher.processing_jobs[job.job_id]
+                # Use ASR service's intelligent chunking
+                audio_chunks, stitch_function = await asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    self.asr_service.chunk_audio_intelligent,
+                    job.audio_data, sr
+                )
+                
+                # Process chunks
+                chunk_results = await asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    self.asr_service.transcribe_batch_nemo,
+                    audio_chunks
+                )
+                
+                # Stitch transcriptions using intelligent stitching
+                final_result = await asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    stitch_function,
+                    chunk_results
+                )
+                
+                processing_time = time.time() - job_start_time
+                rtf = processing_time / duration if duration > 0 else float('inf')
+                
+                job.result = {
+                    'text': final_result.get('text', ''),
+                    'duration': duration,
+                    'rtf': rtf,
+                    'processing_time': processing_time,
+                    'chunks_processed': final_result.get('chunks_processed', len(audio_chunks)),
+                    'confidence': final_result.get('confidence')
+                }
+                job.is_chunked = True
+                
+            else:
+                logger.info(f"Job {job.job_id}: Short audio ({duration/60:.1f}min), single chunk processing")
+                
+                # Process as single audio chunk
+                results = await asyncio.get_event_loop().run_in_executor(
+                    self.executor,
+                    self.asr_service.transcribe_batch_nemo,
+                    [AudioChunk(
+                        audio_data=job.audio_data,
+                        start_time=0,
+                        end_time=duration,
+                        duration=duration,
+                        chunk_id=0
+                    )]
+                )
+                
+                if results:
+                    processing_time = time.time() - job_start_time
+                    rtf = processing_time / duration if duration > 0 else float('inf')
+                    
+                    job.result = {
+                        'text': results[0].get('text', ''),
+                        'duration': duration,
+                        'rtf': rtf,
+                        'processing_time': processing_time,
+                        'chunks_processed': 1,
+                        'confidence': results[0].get('confidence')
+                    }
+                else:
+                    job.result = {'text': '', 'duration': duration, 'rtf': float('inf')}
+                    
+                job.is_chunked = False
             
-            # Update stats
-            self.batcher._stats['jobs_processed'] += len(jobs)
-            self.batcher._stats['total_processing_time'] += processing_time
-            self.batcher._stats['average_batch_size'] = (
-                (self.batcher._stats['average_batch_size'] * 
-                 (self.batcher._stats['jobs_processed'] - len(jobs)) + len(jobs)) /
-                self.batcher._stats['jobs_processed']
-            )
-            
-            avg_rtf = sum(r.get('rtf', 0) for r in results) / len(results)
-            logger.info(f"Batch {batch_id} completed: {processing_time:.2f}s, "
-                       f"avg RTF: {avg_rtf:.3f}")
-            
-        except Exception as e:
-            logger.error(f"Error processing batch {batch_id}: {e}")
-            
-            # Mark all jobs as failed
-            async with self.batcher._lock:
-                for job in jobs:
-                    job.status = BatchStatus.FAILED
-                    job.error = str(e)
-                    self.batcher.result_store[job.job_id] = job
-                    if job.job_id in self.batcher.processing_jobs:
-                        del self.batcher.processing_jobs[job.job_id]
+            job.status = BatchStatus.COMPLETED if job.result.get('text') else BatchStatus.FAILED
+            if not job.result.get('text'):
+                job.error = "No transcription generated"
+                
+            logger.info(f"Job {job.job_id} completed: {duration:.1f}s audio, "
+                       f"RTF: {job.result.get('rtf', 0):.3f}, "
+                       f"chunks: {job.result.get('chunks_processed', 1)}")
+                
+        except Exception as job_error:
+            logger.error(f"Error processing job {job.job_id}: {job_error}")
+            job.status = BatchStatus.FAILED
+            job.error = str(job_error)
+            job.result = {'text': '', 'duration': 0, 'rtf': float('inf')}
+        
+        # Move completed job to result store
+        async with self.batcher._lock:
+            self.batcher.result_store[job.job_id] = job
+            if job.job_id in self.batcher.processing_jobs:
+                del self.batcher.processing_jobs[job.job_id]
+        
+        # Update stats
+        processing_time = time.time() - job_start_time
+        self.batcher._stats['jobs_processed'] += 1
+        self.batcher._stats['total_processing_time'] += processing_time
+        self.batcher._stats['average_batch_size'] = 1.0  # Always 1 job per worker now
     
     async def transcribe_async(self, 
                              job_id: str,

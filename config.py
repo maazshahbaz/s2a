@@ -1,4 +1,5 @@
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 import torch
 
@@ -11,6 +12,8 @@ class ASRConfig(BaseSettings):
     batch_size: int = Field(default=4, description="Batch size for processing")
     max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds")
     min_audio_duration: float = Field(default=5.0, description="Minimum audio duration to process")
+    max_sync_audio_duration: float = Field(default=2 * 60, description="Maximum audio duration for sync API (2 minutes)")
+    max_async_audio_duration: float = Field(default=2 * 60 * 60, description="Maximum audio duration for async API (2 hours)")
     target_sample_rate: int = Field(default=16000, description="Target sample rate for audio")
     
     # Batch processing
@@ -37,10 +40,12 @@ class ASRConfig(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: Optional[str] = Field(default=None, description="Log file path")
     
-    class Config:
-        env_prefix = "S2A_"
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "S2A_",
+        "env_file": ".env", 
+        "case_sensitive": False,
+        "extra": "ignore"  # Allow extra fields in .env
+    }
 
 # Global settings instance
 _settings = None
@@ -66,6 +71,8 @@ class PerformanceConfig(BaseSettings):
     queue_warning_threshold: int = Field(default=50, description="Queue size warning threshold")
     queue_error_threshold: int = Field(default=80, description="Queue size error threshold")
     
-    class Config:
-        env_prefix = "S2A_PERF_"
-        env_file = ".env"
+    model_config = {
+        "env_prefix": "S2A_PERF_",
+        "env_file": ".env",
+        "extra": "ignore"
+    }

@@ -2,7 +2,7 @@ import librosa
 import soundfile as sf
 import numpy as np
 from pathlib import Path
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, Dict
 import tempfile
 import os
 from pydub import AudioSegment
@@ -18,7 +18,10 @@ class AudioProcessor:
                  target_sr: int = 16000,
                  vad_aggressiveness: int = 3):
         self.target_sr = target_sr
+        self.vad_aggressiveness = vad_aggressiveness
         self.vad = webrtcvad.Vad(vad_aggressiveness)
+        # Store aggressiveness for testing access
+        self.vad.aggressiveness = vad_aggressiveness
         
     def convert_to_wav(self, input_path: Union[str, Path], 
                       output_path: Optional[Union[str, Path]] = None) -> Path:
@@ -143,10 +146,21 @@ class AudioProcessor:
         low = low_freq / nyquist
         high = high_freq / nyquist
         
-        b, a = signal.butter(4, [low, high], btype='band')
-        filtered_audio = signal.filtfilt(b, a, audio)
+        # Ensure frequencies are in valid range (0 < freq < 1)
+        low = max(0.01, min(low, 0.99))
+        high = max(low + 0.01, min(high, 0.99))
         
-        return filtered_audio
+        if high <= low:
+            logger.warning(f"Invalid filter frequencies: low={low_freq}, high={high_freq}. Skipping filtering.")
+            return audio
+        
+        try:
+            b, a = signal.butter(4, [low, high], btype='band')
+            filtered_audio = signal.filtfilt(b, a, audio)
+            return filtered_audio
+        except Exception as e:
+            logger.warning(f"Band-pass filter failed: {e}. Returning original audio.")
+            return audio
     
     def enhance_audio(self, audio: np.ndarray, sr: int, 
                      apply_noise_reduction: bool = True,
@@ -211,27 +225,27 @@ class AudioProcessor:
             
             if noise_power > 0:
                 snr_db = 10 * np.log10(speech_power / noise_power)
-                metrics['snr_db'] = snr_db
+                metrics['snr_db'] = float(snr_db)
             else:
                 metrics['snr_db'] = float('inf')
         
         # Dynamic range
-        metrics['dynamic_range_db'] = 20 * np.log10(np.max(np.abs(audio)) / 
-                                                   (np.mean(np.abs(audio)) + 1e-10))
+        metrics['dynamic_range_db'] = float(20 * np.log10(np.max(np.abs(audio)) / 
+                                                   (np.mean(np.abs(audio)) + 1e-10)))
         
         # Zero crossing rate (indicates speech vs noise)
         zcr = librosa.feature.zero_crossing_rate(audio)[0]
-        metrics['mean_zcr'] = np.mean(zcr)
+        metrics['mean_zcr'] = float(np.mean(zcr))
         
         # RMS energy
-        metrics['rms_energy'] = np.sqrt(np.mean(audio**2))
+        metrics['rms_energy'] = float(np.sqrt(np.mean(audio**2)))
         
         # Spectral centroid (brightness)
         spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
-        metrics['spectral_centroid_hz'] = np.mean(spectral_centroids)
+        metrics['spectral_centroid_hz'] = float(np.mean(spectral_centroids))
         
         # Voice activity ratio
-        metrics['voice_activity_ratio'] = np.mean(vad_frames) if len(vad_frames) > 0 else 0
+        metrics['voice_activity_ratio'] = float(np.mean(vad_frames)) if len(vad_frames) > 0 else 0.0
         
         return metrics
     

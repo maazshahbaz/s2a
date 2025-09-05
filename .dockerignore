@@ -1,0 +1,51 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Test files and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Development files
+test.txt
+test_*.sh
+
+# Documentation (keep essential docs)
+*.md
+!README.md
+
+# Model cache (can be large)
+.cache/
+.huggingface/

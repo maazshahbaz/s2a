@@ -1,0 +1,14 @@
+=== S2A ASR Transcription Results ===
+Audio File: in-9524528884-2058527609-20250125-132037-1737832837.3553.wav
+Duration: 2008.04s (33.47 minutes)
+Model: nemo
+Chunks Processed: 2
+Processing Time: 11.09s
+RTF: 0.006
+Performance: 181.0x real-time
+Generated: 2025-09-03 18:30:39.578344
+
+=== TRANSCRIPTION ===
+I called a little bit ago. Well, not today. My headset and mouth and my head, so you have called us before about the headset. The mic wasn't working, I think. I have a headset that has the hand of built-in bike in it. Can you install the same driver again? I think we had it downloaded. Three one zero seven nine nine two nine nine please. Click yes. Should I plug my mic back in? Yep. Plug it back in. Unplug it and plug it back in. Uh hoc tester. Hello. Hello, hello. Hello. Where's the sound coming from from the speakers? From my headphones. Click yes, please. Do you see yes option? Yes. Okay, can you unplug it and plug it back in now? Okay, I don't think it's bad. I think I'm not going to know if I don't. Don't I turn back on? Yeah, please turn it back on. Okay, turn it back on. Okay. Pull up any desk again. Let me just try the old one zero seven nine nine two nine nine. Oh, there you go. Accept that, please. I installed something and started all time. You can install that again, okay? Okay. Didn't install properly. So it's gonna take a while, okay? Go through this process and then call us back once it's done. Wait, I think I have it on my microphone edge. No, we have here. I just downloaded it. Let's go through the process, okay? It's gonna take some time driver fails. Couldn't find the drive for the driver. Can you click yes, please? Is it okay if we reset the PC back to the factory settings? Back to the what? Back to the factory settings. That means we're gonna get rid of everything that was installed on this PC. Not sure what the reset, not restart. Reset it back to the factory settings, which means we will remove everything in the species. Is that okay? You can do that. Yeah, let's do that. So this will take about thirty minutes, thirty, forty minutes, okay? And then sign back in and check the sound. If it still has a problem, call us back, okay? I think I think I forgot the password. Sorry? I think I forgot the password to myself. Forgot the password. Well, it's gonna it's gonna it's it can send you an email it can send you a code. You can just request a code, okay? Okay. Yep. Let's go through a process it will take some time, okay, and then sign back in, log in, and check the sound. If it still has a shoe calls back, okay. Thank you. Okay. Yeah, good day.
+
+=== END ===
