@@ -24,6 +24,7 @@ A high-performance ASR (Automatic Speech Recognition) microservice built with NV
 
 ### API & Integration
 - **FastAPI REST API**: Production-ready async endpoints
+- **Bearer Token Authentication**: OpenAI-style API key authentication with rate limiting
 - **Sync & Async Processing**: Choose based on latency requirements
 - **Webhook Support**: Callback URLs for async results
 - **Prometheus Metrics**: Comprehensive performance monitoring
@@ -35,6 +36,8 @@ A high-performance ASR (Automatic Speech Recognition) microservice built with NV
 - NVIDIA GPU with CUDA 11.8+
 - Docker & docker-compose
 - Python 3.10+ (for local development)
+- 32GB+ system RAM (recommended)
+- 100GB+ storage for models and logs
 
 ### Docker Deployment (Recommended)
 
@@ -49,9 +52,14 @@ cd s2a
 docker-compose up -d
 ```
 
-3. **Verify deployment**:
+3. **Set up authentication** (create your first API key):
 ```bash
-curl http://localhost:8000/health
+python key_manager.py create --name "my-project-key" --type project
+```
+
+4. **Verify deployment**:
+```bash
+curl https://bytepulseai.com/health
 ```
 
 ### Local Development
@@ -68,11 +76,163 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Docker Specifications
+
+**Last Updated**: January 2025
+
+### Container Details
+
+**Base Image**: `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel`
+
+**Key Features**:
+- CUDA 12.1 with cuDNN 8 support
+- PyTorch 2.3.1 pre-installed
+- Optimized for NVIDIA H100/A100 GPUs
+- Multi-stage builds for smaller production images
+
+### Resource Requirements
+
+| Component | Minimum | Recommended | Production |
+|-----------|---------|-------------|-----------|
+| **GPU Memory** | 8GB VRAM | 24GB VRAM | 40GB+ VRAM |
+| **System RAM** | 16GB | 32GB | 64GB+ |
+| **Storage** | 50GB | 100GB | 500GB+ |
+| **CPU Cores** | 8 cores | 16 cores | 32+ cores |
+
+### Port Configuration
+
+| Port | Service | Protocol | Description |
+|------|---------|----------|--------------|
+| `8001` | API Server | HTTP | Main FastAPI application |
+| `9090` | Metrics | HTTP | Prometheus metrics endpoint |
+
+### Volume Mounts
+
+| Host Path | Container Path | Purpose |
+|-----------|----------------|----------|
+| `./logs` | `/app/logs` | Application logs |
+| `/tmp/s2a` | `/tmp/s2a` | Temporary audio processing files |
+
+### Environment Variables
+
+See [Configuration](#configuration) section for complete list.
+
+### GPU Configuration
+
+The service requires NVIDIA Container Toolkit:
+
+```yaml
+# docker-compose.yml GPU configuration
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
+
+### Health Checks
+
+- **Interval**: 30 seconds
+- **Timeout**: 10 seconds  
+- **Start Period**: 60 seconds
+- **Retries**: 3
+
+## Authentication
+
+### API Key Management
+
+The S2A service uses OpenAI-style Bearer token authentication with comprehensive API key management.
+
+#### Creating API Keys
+
+1. **Using the Key Manager CLI**:
+```bash
+# Create a project key
+python key_manager.py create --name "production-api" --type project
+
+# Create with custom rate limits
+python key_manager.py create \
+  --name "high-volume-client" \
+  --type project \
+  --rpm 120 \
+  --rph 2000 \
+  --rpd 20000
+```
+
+2. **Key Types Available**:
+   - `project`: `bp-proj-*` - Standard project keys
+   - `user`: `bp-*` - User-specific keys  
+   - `service`: `bp-svc-*` - Service-to-service keys
+
+#### Managing API Keys
+
+```bash
+# List all keys
+python key_manager.py list
+
+# Show key details
+python key_manager.py show <key_id>
+
+# View usage statistics  
+python key_manager.py stats
+
+# Test API endpoints
+python key_manager.py test
+```
+
+### Authentication Configuration
+
+Set the API key secret for production:
+
+```bash
+# Required: Set a strong secret for key signing
+export API_KEY_SECRET="your-secure-secret-min-32-chars"
+
+# Optional: Custom key storage location
+export API_KEYS_FILE="./api_keys.json"
+```
+
+### Rate Limiting
+
+Each API key has configurable rate limits:
+
+- **Per Minute**: Default 60 requests
+- **Per Hour**: Default 1,000 requests  
+- **Per Day**: Default 10,000 requests
+
+Rate limit headers are included in all responses:
+
+```http
+X-RateLimit-Limit-Minute: 60
+X-RateLimit-Remaining-Minute: 59
+X-RateLimit-Reset-Minute: 1640995200
+```
+
+### Security Features
+
+- **HMAC-SHA256 Key Hashing**: Keys are never stored in plaintext
+- **Atomic File Operations**: Race-condition safe key storage
+- **Permission-Based Access**: Granular endpoint permissions
+- **Usage Tracking**: Comprehensive audit logs
+- **Automatic Revocation**: Instant key deactivation
+
 ## API Usage
+
+### Authentication Required
+
+All API endpoints (except `/health`) require Bearer token authentication:
+
+```bash
+curl -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
+     https://bytepulseai.com/v1/transcribe
+```
 
 ### Synchronous Transcription
 ```bash
-curl -X POST "http://localhost:8000/v1/transcribe" \
+curl -X POST "https://bytepulseai.com/v1/transcribe" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@sample.wav" \
   -F "enhance_audio=true"
@@ -81,18 +241,21 @@ curl -X POST "http://localhost:8000/v1/transcribe" \
 ### Asynchronous Transcription
 ```bash
 # Submit job
-curl -X POST "http://localhost:8000/v1/transcribe/async" \
+curl -X POST "https://bytepulseai.com/v1/transcribe/async" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@long_audio.mp3" \
   -F "priority=1"
 
 # Check status
-curl "http://localhost:8000/v1/status/{job_id}"
+curl "https://bytepulseai.com/v1/status/{job_id}" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY"
 ```
 
 ### Health Check
 ```bash
-curl "http://localhost:8000/health"
+# Health check doesn't require authentication
+curl "https://bytepulseai.com/health"
 ```
 
 ## CLI Usage
@@ -111,12 +274,12 @@ python cli.py batch-transcribe *.wav --output-dir results/
 
 ### API Client
 ```bash
-python cli.py api-transcribe audio.wav --url http://localhost:8000
+python cli.py api-transcribe audio.wav --url https://bytepulseai.com --api-key bp-proj-YOUR_API_KEY
 ```
 
 ### Server Status
 ```bash
-python cli.py status --url http://localhost:8000
+python cli.py status --url https://bytepulseai.com --api-key bp-proj-YOUR_API_KEY
 ```
 
 ## Configuration
@@ -127,12 +290,15 @@ python cli.py status --url http://localhost:8000
 |----------|---------|-------------|
 | `S2A_MODEL_NAME` | `nvidia/parakeet-tdt-0.6b-v2` | HuggingFace model name |
 | `S2A_DEVICE` | `cuda` | Processing device |
-| `S2A_BATCH_SIZE` | `4` | Batch size for processing |
+| `S2A_BATCH_SIZE` | `8` | Batch size for processing |
 | `S2A_MAX_CHUNK_DURATION` | `1440` | Max chunk duration (seconds) |
 | `S2A_MIN_AUDIO_DURATION` | `5.0` | Min audio duration to process |
 | `S2A_GPU_MEMORY_FRACTION` | `0.8` | GPU memory utilization |
 | `S2A_NUM_WORKERS` | `2` | Number of worker processes |
 | `S2A_LOG_LEVEL` | `INFO` | Logging level |
+| `S2A_ENABLE_MIXED_PRECISION` | `true` | Enable mixed precision inference |
+| `API_KEY_SECRET` | `change-me` | Secret for API key HMAC signing |
+| `API_KEYS_FILE` | `./api_keys.json` | Path to API keys storage file |
 
 ### .env File
 ```bash
@@ -255,11 +421,13 @@ nvidia-smi
 docker-compose logs -f s2a-api
 
 # Test with sample audio
-curl -X POST "http://localhost:8000/v1/transcribe" \
+curl -X POST "https://bytepulseai.com/v1/transcribe" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -F "audio_file=@test_audio.wav"
 
 # Monitor performance
-curl "http://localhost:8000/v1/stats" | jq
+curl "https://bytepulseai.com/v1/stats" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" | jq
 ```
 
 ## Development
@@ -309,10 +477,13 @@ pytest tests/performance/ --benchmark
    - High-speed internet for model downloads
 
 2. **Security Considerations**:
-   - API authentication (implement before production)
-   - Network isolation
-   - Input validation
-   - Rate limiting
+   - ✅ **API Authentication**: Bearer token system implemented
+   - ✅ **Rate Limiting**: Per-minute/hour/day limits enforced
+   - ✅ **Input Validation**: Comprehensive audio file validation
+   - ✅ **Secure Key Storage**: HMAC-SHA256 hashed keys
+   - **Network Isolation**: Configure firewall rules
+   - **HTTPS/TLS**: Use reverse proxy (nginx/traefik)
+   - **Secret Management**: Use environment variables for API_KEY_SECRET
 
 3. **Scaling**:
    - Multiple GPU support
