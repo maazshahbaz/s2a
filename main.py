@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request, Response
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Depends, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -253,7 +253,7 @@ async def transcribe_sync(
 async def transcribe_async(
     request: Request,
     response: Response,
-    callback_url: str,
+    callback_url: str = Form(...),
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
