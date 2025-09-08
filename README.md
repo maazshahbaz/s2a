@@ -245,6 +245,7 @@ curl -X POST "https://bytepulseai.com/v1/transcribe/async" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@long_audio.mp3" \
+  -F "callback_url=https://your-app.com/webhook" \
   -F "priority=1"
 
 # Check status
