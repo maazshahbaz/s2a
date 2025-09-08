@@ -19,6 +19,7 @@ from batch_processor import BatchProcessor, BatchConfig, BatchJob
 from config import ASRConfig, get_settings
 from performance_monitor import get_performance_monitor
 from auth import auth, require_permission, update_usage, get_rate_limit_headers, APIKey
+from webhook import webhook_sender, WebhookPayload
 
 class TranscriptionRequest(BaseModel):
     audio_file: str = Field(description="Path to audio file or file upload")
@@ -252,6 +253,7 @@ async def transcribe_sync(
 async def transcribe_async(
     request: Request,
     response: Response,
+    callback_url: str,
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
@@ -260,15 +262,19 @@ async def transcribe_async(
     key_info: APIKey = Depends(require_permission("transcribe")),
     services = Depends(get_services)
 ):
-    """Asynchronous transcription endpoint - requires transcribe permission"""
+    """Asynchronous transcription endpoint - requires transcribe permission and callback_url"""
     asr_svc, audio_proc, batch_proc = services
     job_id = str(uuid.uuid4())
+    
+    # Validate callback URL
+    if not webhook_sender.validate_callback_url(callback_url):
+        raise HTTPException(status_code=400, detail="Invalid callback_url. Must be a valid HTTP/HTTPS URL.")
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
     for key, value in headers.items():
         response.headers[key] = value
-    print(audio_file)
+    
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
@@ -281,7 +287,7 @@ async def transcribe_async(
     # Add to background processing
     background_tasks.add_task(
         process_audio_background,
-        job_id, tmp_file_path, enhance_audio, remove_silence, priority,
+        job_id, tmp_file_path, enhance_audio, remove_silence, priority, callback_url,
         asr_svc, audio_proc, batch_proc
     )
     
@@ -293,6 +299,7 @@ async def process_audio_background(
     enhance_audio: bool,
     remove_silence: bool,
     priority: int,
+    callback_url: str,
     asr_svc,
     audio_proc,
     batch_proc
@@ -326,16 +333,43 @@ async def process_audio_background(
                 'sample_rate': sr,
                 'duration': audio_info['duration'],
                 'quality_metrics': audio_info.get('quality_metrics'),
-                'enhancement_applied': enhance_audio
+                'enhancement_applied': enhance_audio,
+                'callback_url': callback_url
             },
             priority=priority,
             timeout=300.0
         )
         
-        logger.info(f"Job {job_id} completed successfully")
+        # Send webhook with results
+        if result:
+            webhook_payload = WebhookPayload(
+                job_id=job_id,
+                status="completed",
+                result=result,
+                processing_time=result.get('processing_time')
+            )
+        else:
+            webhook_payload = WebhookPayload(
+                job_id=job_id,
+                status="failed",
+                error="Transcription processing failed"
+            )
+        
+        # Send webhook asynchronously (don't wait for it)
+        asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
+        
+        logger.info(f"Job {job_id} completed and webhook sent to {callback_url}")
         
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")
+        
+        # Send error webhook
+        error_payload = WebhookPayload(
+            job_id=job_id,
+            status="failed",
+            error=str(e)
+        )
+        asyncio.create_task(webhook_sender.send_webhook(callback_url, error_payload))
     
     finally:
         # Clean up temporary file
