@@ -15,7 +15,7 @@ from pathlib import Path
 # Add parent directory for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from asr_service import NeMoASRService, TranscriptionResult
+from services.asr_service import NeMoASRService, TranscriptionResult
 from webhook import WebhookSender, WebhookPayload
 import soundfile as sf
 from unittest.mock import AsyncMock

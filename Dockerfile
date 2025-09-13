@@ -6,13 +6,13 @@ ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libsndfile1 \
-    libsox-dev \
-    sox \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+  ffmpeg \
+  libsndfile1 \
+  libsox-dev \
+  sox \
+  git \
+  curl \
+  && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -37,7 +37,7 @@ EXPOSE 8001 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8001/health || exit 1
+  CMD curl -f http://localhost:8001/v1/statistics/health || exit 1
 
 # Default command
 CMD ["python", "main.py"]

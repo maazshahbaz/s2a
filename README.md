@@ -59,7 +59,7 @@ python key_manager.py create --name "my-project-key" --type project
 
 4. **Verify deployment**:
 ```bash
-curl https://bytepulseai.com/health
+curl https://bytepulseai.com/v1/statistics/health
 ```
 
 ### Local Development
@@ -222,16 +222,16 @@ X-RateLimit-Reset-Minute: 1640995200
 
 ### Authentication Required
 
-All API endpoints (except `/health`) require Bearer token authentication:
+All API endpoints (except `/v1/statistics/health`) require Bearer token authentication:
 
 ```bash
 curl -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
-     https://bytepulseai.com/v1/transcribe
+     https://bytepulseai.com/v1/transcription/transcribe
 ```
 
 ### Synchronous Transcription
 ```bash
-curl -X POST "https://bytepulseai.com/v1/transcribe" \
+curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@sample.wav" \
@@ -241,7 +241,7 @@ curl -X POST "https://bytepulseai.com/v1/transcribe" \
 ### Asynchronous Transcription
 ```bash
 # Submit job
-curl -X POST "https://bytepulseai.com/v1/transcribe/async" \
+curl -X POST "https://bytepulseai.com/v1/transcription/transcribe/async" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@long_audio.mp3" \
@@ -249,14 +249,14 @@ curl -X POST "https://bytepulseai.com/v1/transcribe/async" \
   -F "priority=1"
 
 # Check status
-curl "https://bytepulseai.com/v1/status/{job_id}" \
+curl "https://bytepulseai.com/v1/transcription/status/{job_id}" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY"
 ```
 
 ### Health Check
 ```bash
 # Health check doesn't require authentication
-curl "https://bytepulseai.com/health"
+curl "https://bytepulseai.com/v1/statistics/health"
 ```
 
 ## CLI Usage
@@ -389,8 +389,8 @@ Access metrics at `http://localhost:9090/metrics`:
 Access at `http://localhost:3000` (admin/admin)
 
 ### Health Endpoints
-- `/health`: Service health check
-- `/v1/stats`: Performance statistics
+- `/v1/statistics/health`: Service health check
+- `/v1/statistics/stats`: Performance statistics
 - `/metrics`: Prometheus metrics
 
 ## Error Handling
@@ -422,12 +422,12 @@ nvidia-smi
 docker-compose logs -f s2a-api
 
 # Test with sample audio
-curl -X POST "https://bytepulseai.com/v1/transcribe" \
+curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -F "audio_file=@test_audio.wav"
 
 # Monitor performance
-curl "https://bytepulseai.com/v1/stats" \
+curl "https://bytepulseai.com/v1/statistics/stats" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" | jq
 ```
 

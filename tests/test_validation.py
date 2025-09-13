@@ -20,7 +20,7 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from asr_service import NeMoASRService
+from services.asr_service import NeMoASRService
 
 # Test audio files paths
 TEST_AUDIO_DIR = Path(__file__).parent / "test_audio"

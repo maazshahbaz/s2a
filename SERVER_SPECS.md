@@ -123,13 +123,13 @@ lscpu
 ### Application Performance Monitoring
 ```bash
 # S2A service stats
-curl http://localhost:8001/v1/stats | jq
+curl http://localhost:8001/v1/statistics/stats | jq
 
 # Queue and processing metrics
-curl http://localhost:8001/v1/stats | jq .batch_processor
+curl http://localhost:8001/v1/statistics/stats | jq .batch_processor
 
 # Health check
-curl http://localhost:8001/health
+curl http://localhost:8001/v1/statistics/health
 ```
 
 ## Scaling Guidelines

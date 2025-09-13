@@ -67,7 +67,7 @@ sleep 30
 echo "🩺 Checking service health..."
 
 # Check main API service
-if curl -f http://localhost:8001/health &> /dev/null; then
+if curl -f http://localhost:8001/v1/statistics/health &> /dev/null; then
     print_status "S2A API service is healthy"
 else
     print_error "S2A API service is not responding"
@@ -95,13 +95,13 @@ echo "🎉 Deployment completed successfully!"
 echo ""
 echo "📡 Service Endpoints:"
 echo "   • S2A API:        http://localhost:8001"
-echo "   • Health Check:   http://localhost:8001/health"
-echo "   • API Stats:      http://localhost:8001/v1/stats"
+echo "   • Health Check:   http://localhost:8001/v1/statistics/health"
+echo "   • API Stats:      http://localhost:8001/v1/statistics/stats"
 echo "   • Prometheus:     http://localhost:9091"
 echo "   • Grafana:        http://localhost:3000 (admin/admin)"
 echo ""
 echo "🧪 Test the API:"
-echo '   curl -X POST "http://localhost:8001/v1/transcribe" \'
+echo '   curl -X POST "http://localhost:8001/v1/transcription/transcribe" \'
 echo '     -H "Content-Type: multipart/form-data" \'
 echo '     -F "audio_file=@your_audio.wav"'
 echo ""
