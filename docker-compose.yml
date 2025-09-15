@@ -2,8 +2,8 @@ services:
   s2a-api:
     build: .
     ports:
-      - "8001:8001"  # API port (matches main.py configuration)
-      - "9090:9090"  # Prometheus metrics port
+      - "8001:8001" # API port (matches main.py configuration)
+      - "9090:9090" # Prometheus metrics port
     volumes:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
@@ -11,7 +11,7 @@ services:
       - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
       - S2A_DEVICE=cuda
       - S2A_BATCH_SIZE=8
-      - S2A_MAX_CHUNK_DURATION=1440  # 24 minutes in seconds
+      - S2A_MAX_CHUNK_DURATION=1440 # 24 minutes in seconds
       - S2A_MIN_AUDIO_DURATION=5.0
       - S2A_LOG_LEVEL=INFO
       - S2A_ENABLE_MIXED_PRECISION=true
@@ -23,15 +23,14 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
-
   # Monitoring services commented out for initial deployment
   # Uncomment and configure monitoring files if needed
   # prometheus:
@@ -39,7 +38,7 @@ services:
   #   ports:
   #     - "9091:9090"
   #   restart: unless-stopped
-  
+
   # grafana:
   #   image: grafana/grafana:latest
   #   ports:

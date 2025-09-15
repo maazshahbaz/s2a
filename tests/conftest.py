@@ -15,8 +15,8 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import soundfile as sf
-from asr_service import NeMoASRService, TranscriptionResult
-from audio_utils import AudioProcessor
+from services.asr_service import NeMoASRService, TranscriptionResult
+from services.audio_utils import AudioProcessor
 from config import ASRConfig
 
 

@@ -14,7 +14,7 @@ import click
 from tabulate import tabulate
 
 try:
-    from auth import api_key_store, APIKeyType
+    from services.auth import api_key_store, APIKeyType
 except ImportError as e:
     click.echo(f"❌ Import error: {e}")
     click.echo("Make sure you're running this from the s2a directory")
@@ -225,7 +225,7 @@ def test():
     click.echo(f"\n✅ Found {len(active_keys)} active key(s)")
     click.echo("\n📝 Test Commands:")
     click.echo("\n1. Health Check:")
-    click.echo('   curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:8001/health')
+    click.echo('   curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:8001/v1/statistics/health')
     
     click.echo("\n2. Transcribe Audio:")
     click.echo('   curl -H "Authorization: Bearer YOUR_API_KEY" \\')
