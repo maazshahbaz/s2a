@@ -15,8 +15,8 @@ from typing import Optional, List
 import requests
 from loguru import logger
 
-from asr_service import NeMoASRService
-from audio_utils import AudioProcessor
+from services.asr_service import NeMoASRService
+from services.audio_utils import AudioProcessor
 from config import get_settings
 
 @click.group()
@@ -193,7 +193,7 @@ def batch_transcribe(audio_files, model, device, batch_size, output_dir, output_
 def api_transcribe(url, audio_file, enhance, async_mode):
     """Transcribe using the API server"""
     
-    endpoint = f"{url}/v1/transcribe" + ("/async" if async_mode else "")
+    endpoint = f"{url}/v1/transcription/transcribe" + ("/async" if async_mode else "")
     
     with open(audio_file, 'rb') as f:
         files = {'audio_file': f}
@@ -241,7 +241,7 @@ def status(url):
     
     try:
         # Health check
-        health_response = requests.get(f"{url}/health", timeout=10)
+        health_response = requests.get(f"{url}/v1/statistics/health", timeout=10)
         health_response.raise_for_status()
         health_data = health_response.json()
         
@@ -258,7 +258,7 @@ def status(url):
         click.echo(f"Batch Size: {model_info['batch_size']}")
         
         # Performance stats
-        stats_response = requests.get(f"{url}/v1/stats", timeout=10)
+        stats_response = requests.get(f"{url}/v1/statistics/stats", timeout=10)
         if stats_response.status_code == 200:
             stats_data = stats_response.json()
             batch_stats = stats_data['batch_processor']

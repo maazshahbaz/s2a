@@ -14,7 +14,7 @@ from unittest.mock import patch, Mock
 # Add parent directory for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from audio_utils import AudioProcessor
+from services.audio_utils import AudioProcessor
 import soundfile as sf
 from pydub import AudioSegment
 
