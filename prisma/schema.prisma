@@ -1,0 +1,35 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AuthKey {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) // internal DB id
+  keyId             String    @unique @map("key_id")
+  keyHash           String    @unique @map("key_hash")
+  name              String
+  keyType           String    @map("key_type")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  lastUsed          DateTime? @map("last_used")
+  usageCount        Int       @default(0) @map("usage_count")
+  isActive          Boolean   @default(true) @map("is_active")
+  requestsPerMinute Int       @default(60) @map("requests_per_minute")
+  requestsPerHour   Int       @default(1000) @map("requests_per_hour")
+  requestsPerDay    Int       @default(10000) @map("requests_per_day")
+  totalAudioMinutes Float     @default(0.0) @map("total_audio_minutes")
+  totalRequests     Int       @default(0) @map("total_requests")
+  permissions       String[] // array of permissions: ["transcribe", "status", "stats"]
+
+  @@map("auth_keys") // table name
+}
