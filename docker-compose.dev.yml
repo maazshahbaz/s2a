@@ -1,11 +1,11 @@
 version: "3.9"
 
 services:
-  s2a-api:
+  s2a-api-dev:
     build: .
     ports:
-      - "8001:8001" # API port
-      - "9090:9090" # Prometheus metrics port
+      - "8002:8001" # API port
+      - "9091:9090" # Prometheus metrics port
     volumes:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
@@ -20,21 +20,10 @@ services:
       - S2A_ENABLE_MIXED_PRECISION=false
       - S2A_GPU_MEMORY_FRACTION=0.5
       - S2A_NUM_WORKERS=1
-    command:
-      [
-        "python",
-        "-m",
-        "uvicorn",
-        "main:app",
-        "--reload",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8001",
-      ]
+    command: [ "python", "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8001" ]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
