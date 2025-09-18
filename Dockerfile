@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8001/v1/statistics/health || exit 1
 
 # Default command
-CMD ["python", "main.py"]
+CMD ["sh", "-c", "npx prisma migrate deploy && python main.py"]
