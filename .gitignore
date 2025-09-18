@@ -90,3 +90,6 @@ temp/
 *.tmp
 
 /generated/prisma
+
+# node_modules
+node_modules
