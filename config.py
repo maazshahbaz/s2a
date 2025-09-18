@@ -46,30 +46,6 @@ class ASRConfig(BaseSettings):
         "case_sensitive": False,
         "extra": "ignore"  # Allow extra fields in .env
     }
-
-# Global settings instances
-_settings = None
-_intelligence_settings = None
-_intelligence_metrics_settings = None
-
-def get_settings() -> ASRConfig:
-    global _settings
-    if _settings is None:
-        _settings = ASRConfig()
-    return _settings
-
-def get_intelligence_settings() -> IntelligenceConfig:
-    global _intelligence_settings
-    if _intelligence_settings is None:
-        _intelligence_settings = IntelligenceConfig()
-    return _intelligence_settings
-
-def get_intelligence_metrics_settings() -> IntelligenceMetricsConfig:
-    global _intelligence_metrics_settings
-    if _intelligence_metrics_settings is None:
-        _intelligence_metrics_settings = IntelligenceMetricsConfig()
-    return _intelligence_metrics_settings
-
 # Performance monitoring configuration
 class PerformanceConfig(BaseSettings):
     enable_metrics: bool = Field(default=True, description="Enable performance metrics collection")
@@ -162,3 +138,26 @@ class IntelligenceMetricsConfig(BaseSettings):
         "env_file": ".env",
         "extra": "ignore"
     }
+    
+# Global settings instances
+_settings = None
+_intelligence_settings = None
+_intelligence_metrics_settings = None
+
+def get_settings() -> ASRConfig:
+    global _settings
+    if _settings is None:
+        _settings = ASRConfig()
+    return _settings
+
+def get_intelligence_settings() -> IntelligenceConfig:
+    global _intelligence_settings
+    if _intelligence_settings is None:
+        _intelligence_settings = IntelligenceConfig()
+    return _intelligence_settings
+
+def get_intelligence_metrics_settings() -> IntelligenceMetricsConfig:
+    global _intelligence_metrics_settings
+    if _intelligence_metrics_settings is None:
+        _intelligence_metrics_settings = IntelligenceMetricsConfig()
+    return _intelligence_metrics_settings
