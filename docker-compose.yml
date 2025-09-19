@@ -1,6 +1,8 @@
 services:
   s2a-api:
     build: .
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     ports:
       - "8001:8001" # API port (matches main.py configuration)
       - "9090:9090" # Prometheus metrics port
@@ -17,6 +19,8 @@ services:
       - S2A_ENABLE_MIXED_PRECISION=true
       - S2A_GPU_MEMORY_FRACTION=0.8
       - S2A_NUM_WORKERS=2
+    env_file:
+      - .env
     deploy:
       resources:
         reservations:
