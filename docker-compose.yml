@@ -1,6 +1,8 @@
 services:
   s2a-api:
     build: .
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     ports:
       - "8001:8001" # API port (matches main.py configuration)
       - "9090:9090" # Prometheus metrics port
@@ -17,16 +19,18 @@ services:
       - S2A_ENABLE_MIXED_PRECISION=true
       - S2A_GPU_MEMORY_FRACTION=0.8
       - S2A_NUM_WORKERS=2
+    env_file:
+      - .env
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -47,17 +51,6 @@ services:
   #     - GF_SECURITY_ADMIN_PASSWORD=admin
   #   restart: unless-stopped
 
-  db:
-    image: postgres:15
-    restart: always
-    env_file:
-      - .env
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
 volumes:
-  postgres_data:
   prometheus_data:
   grafana_data:

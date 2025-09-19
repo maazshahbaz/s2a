@@ -3,8 +3,9 @@ FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+ENV NODE_VERSION=20.19.4
 
-# Install system dependencies
+# Install system dependencies + Node.js (needed for Prisma)
 RUN apt-get update && apt-get install -y \
   ffmpeg \
   libsndfile1 \
@@ -12,19 +13,31 @@ RUN apt-get update && apt-get install -y \
   sox \
   git \
   curl \
+  build-essential \
+  && curl -fsSL https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz \
+  | tar -xJ -C /usr/local --strip-components=1 \
   && rm -rf /var/lib/apt/lists/*
+
+# Verify node version
+RUN node -v && npm -v
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
+# Copy requirements first for caching
 COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Prisma CLI globally
+RUN npm install -g prisma
+
 # Copy application code
 COPY . .
+
+# Generate Prisma client
+RUN prisma generate
 
 # Create directories for temporary files and logs
 RUN mkdir -p /tmp/s2a /app/logs
@@ -40,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8001/v1/statistics/health || exit 1
 
 # Default command
-CMD ["python", "main.py"]
+CMD ["sh", "-c", "npx prisma migrate deploy && python main.py"]

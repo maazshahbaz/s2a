@@ -45,3 +45,7 @@ mypy>=1.5.0
 # Monitoring and logging
 loguru>=0.7.0
 prometheus-client>=0.17.0
+
+# Database
+prisma>=0.12.0
+psycopg2-binary>=2.9.0
