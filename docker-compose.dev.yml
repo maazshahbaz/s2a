@@ -22,7 +22,7 @@ services:
       - S2A_ENABLE_MIXED_PRECISION=false
       - S2A_GPU_MEMORY_FRACTION=0.5
       - S2A_NUM_WORKERS=1
-    command: [ "sh", "-c", "prisma generate && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001" ]
+    command: [ "sh", "-c", "prisma generate && (prisma migrate deploy || (echo 'Baseline required, marking existing migrations as applied...' && prisma migrate resolve --applied $(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001" ]
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]

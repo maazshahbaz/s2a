@@ -39,9 +39,6 @@ COPY . .
 # Generate Prisma client
 RUN prisma generate
 
-# Fetch Prisma Python engine binaries (fixes BinaryNotFoundError)
-RUN prisma py fetch
-
 # Create directories for temporary files and logs
 RUN mkdir -p /tmp/s2a /app/logs
 
@@ -56,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8001/v1/statistics/health || exit 1
 
 # Default command
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["sh", "-c", "prisma migrate deploy && prisma py fetch && python -m uvicorn main:app --host 0.0.0.0 --port 8001"]
