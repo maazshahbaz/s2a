@@ -1,16 +1,13 @@
 from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTTPException, Form, BackgroundTasks
 from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
-import os
 from dependencies import get_services, get_transcription_service
 from db_services.auth import require_permission, update_usage, update_request_usage, get_rate_limit_headers, APIKey
 from db_services.transcription import store_uploaded_file
 import uuid
-import tempfile
 from config import get_settings
-from pathlib import Path
 from loguru import logger
 from webhook import webhook_sender
-from dependencies import process_audio_background, process_audio_background_db
+from dependencies import process_audio_background_db
 from datetime import datetime
 
 router = APIRouter(prefix="/transcription", tags=["Transcription"])

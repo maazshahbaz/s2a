@@ -1,10 +1,32 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
-from generated.prisma import Prisma
+from generated.prisma import Prisma, Json
 from generated.prisma.models import TranscriptionJob, TranscriptionResult
 import uuid
 import os
+import json
+import math
 from loguru import logger
+
+
+def sanitize_json_data(data: Any) -> Any:
+    """Sanitize data to be JSON-compatible by handling NaN, inf, and numpy types"""
+    if data is None:
+        return None
+    elif isinstance(data, dict):
+        return {key: sanitize_json_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_json_data(item) for item in data]
+    elif isinstance(data, (float, complex)):
+        if math.isnan(data) or math.isinf(data):
+            return None
+        return float(data)
+    elif hasattr(data, 'item'):  # numpy types
+        return sanitize_json_data(data.item())
+    elif hasattr(data, 'tolist'):  # numpy arrays
+        return sanitize_json_data(data.tolist())
+    else:
+        return data
 
 
 class TranscriptionJobService:
@@ -82,17 +104,31 @@ class TranscriptionJobService:
         audio_quality: Optional[Dict[str, Any]] = None
     ) -> TranscriptionResult:
         """Save transcription result"""
-        result = await self.db.transcriptionresult.create(
-            data={
-                'jobId': job_id,
-                'text': text,
-                'confidence': confidence,
-                'rtf': rtf,
-                'processingTime': processing_time,
-                'chunks': chunks,
-                'audioQuality': audio_quality
-            }
-        )
+        # Build data dict, excluding None values for optional fields
+        data = {
+            'jobId': job_id,
+            'text': text,
+        }
+        
+        # Only include optional fields if they have values
+        if confidence is not None:
+            data['confidence'] = confidence
+        if rtf is not None:
+            data['rtf'] = rtf
+        if processing_time is not None:
+            data['processingTime'] = processing_time
+        if chunks is not None:
+            data['chunks'] = chunks
+        if audio_quality is not None:
+            try:
+                # Use Prisma Json wrapper
+                sanitized_quality = sanitize_json_data(audio_quality)
+                data['audioQuality'] = Json(sanitized_quality)
+                logger.info(f"Prepared audio quality data with Json wrapper: {sanitized_quality}")
+            except Exception as e:
+                logger.warning(f"Failed to process audio quality data: {e}, skipping")
+            
+        result = await self.db.transcriptionresult.create(data=data)
         
         # Update job status to completed
         await self.update_job_status(job_id, 'completed', completed_at=datetime.utcnow())
