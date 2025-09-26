@@ -2,7 +2,7 @@ from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTT
 from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 import os
 from dependencies import get_services
-from services.auth import require_permission, update_usage, get_rate_limit_headers, APIKey
+from db_services.auth import require_permission, update_usage, update_request_usage, get_rate_limit_headers, APIKey
 import uuid
 import tempfile
 from config import get_settings
@@ -76,7 +76,7 @@ async def transcribe_sync(
         result = await asr_svc.transcribe_audio(tmp_file_path)
         
         # Update usage statistics
-        update_usage(request, result.duration)
+        await update_usage(request, result.duration)
         
         return TranscriptionResponse(
             job_id=job_id,
@@ -126,6 +126,9 @@ async def transcribe_async(
     for key, value in headers.items():
         response.headers[key] = value
     
+    # Track API request usage immediately
+    await update_request_usage(request)
+    
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
@@ -139,7 +142,7 @@ async def transcribe_async(
     background_tasks.add_task(
         process_audio_background,
         job_id, tmp_file_path, enhance_audio, remove_silence, priority, callback_url,
-        asr_svc, audio_proc, batch_proc
+        asr_svc, audio_proc, batch_proc, request.state.api_key
     )
     
     return TranscribeAsyncResponse(job_id=job_id, status="accepted")

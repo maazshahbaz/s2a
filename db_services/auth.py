@@ -5,33 +5,30 @@ Features:
 - Bearer token auth
 - Rate limiting (minute/hour/day)
 - Permission-based access control
-- File-based persistence (atomic writes)
-- Extensible for Redis or DB backend
+- Prisma database persistence
+- Production-ready with async support
 """
 
 import hashlib
 import hmac
 import secrets
 import time
-import json
 import os
-from tempfile import NamedTemporaryFile
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
 
 from fastapi import HTTPException, Request, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from loguru import logger
+from generated.prisma import Prisma
 
 # ======================================================
 # CONFIGURATION
 # ======================================================
 
 API_KEY_SECRET = os.environ.get("API_KEY_SECRET", "change-me")  # Use env var in production
-API_KEYS_FILE = "./api_keys.json"
 
 
 # ======================================================
@@ -88,100 +85,150 @@ class RateLimitInfo(BaseModel):
 
 
 # ======================================================
-# API KEY STORE (FILE-BASED)
+# API KEY STORE (DATABASE-BASED)
 # ======================================================
 
-class APIKeyStore:
-    """File-based API key storage (use Redis/DB for production scaling)"""
+class PrismaAPIKeyStore:
+    """Prisma database-based API key storage for production scaling"""
 
-    def __init__(self, storage_path: str = API_KEYS_FILE):
-        self.storage_path = Path(storage_path)
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self._keys: Dict[str, APIKey] = {}
-        self._load_keys()
+    def __init__(self, db: Prisma):
+        self.db = db
 
-    def _load_keys(self):
-        if self.storage_path.exists():
-            try:
-                with open(self.storage_path, 'r') as f:
-                    data = json.load(f)
-                    for key_hash, key_data in data.items():
-                        kt = key_data.pop('key_type')
-                        created = key_data.pop('created_at')
-                        last_used = key_data.pop('last_used')
-                        self._keys[key_hash] = APIKey(
-                            **key_data,
-                            key_type=APIKeyType(kt),
-                            created_at=datetime.fromisoformat(created),
-                            last_used=datetime.fromisoformat(last_used) if last_used else None
-                        )
-            except Exception as e:
-                logger.error(f"Failed to load API keys: {e}")
-
-    def _save_keys(self):
-        try:
-            data = {}
-            for key_hash, key_info in self._keys.items():
-                data[key_hash] = {
-                    **key_info.dict(),
-                    'key_type': key_info.key_type.value,
-                    'created_at': key_info.created_at.isoformat(),
-                    'last_used': key_info.last_used.isoformat() if key_info.last_used else None
-                }
-            # Atomic write
-            with NamedTemporaryFile('w', delete=False, dir=str(self.storage_path.parent)) as tf:
-                tmpname = tf.name
-                json.dump(data, tf, indent=2)
-            os.chmod(tmpname, 0o600)
-            os.replace(tmpname, self.storage_path)
-        except Exception as e:
-            logger.error(f"Failed to save API keys: {e}")
-
-    def create_key(self, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
+    async def create_key(self, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
+        """Create a new API key and store it in the database"""
         # Generate plaintext key
         key_suffix = secrets.token_urlsafe(32)
         api_key = f"{key_type.value}-{key_suffix}"
         key_hash = hash_api_key(api_key)
 
-        key_info = APIKey(
-            key_id=key_hash[:12],
-            key_hash=key_hash,
-            name=name,
-            key_type=key_type,
-            created_at=datetime.now(timezone.utc),
-            **kwargs
+        # Default permissions
+        permissions = kwargs.get('permissions', ["transcribe", "status", "stats"])
+        
+        try:
+            # Create in database
+            auth_key = await self.db.authkey.create(
+                data={
+                    'keyId': key_hash[:12],
+                    'keyHash': key_hash,
+                    'name': name,
+                    'keyType': key_type.value,
+                    'requestsPerMinute': kwargs.get('requests_per_minute', 60),
+                    'requestsPerHour': kwargs.get('requests_per_hour', 1000),
+                    'requestsPerDay': kwargs.get('requests_per_day', 10000),
+                    'permissions': permissions,
+                }
+            )
+            
+            # Convert to APIKey model
+            key_info = self._auth_key_to_api_key(auth_key)
+            logger.info(f"Created API key: {key_info.key_id} ({name})")
+            return api_key, key_info
+            
+        except Exception as e:
+            logger.error(f"Failed to create API key: {e}")
+            raise HTTPException(status_code=500, detail="Failed to create API key")
+
+    async def get_key(self, api_key: str) -> Optional[APIKey]:
+        """Retrieve API key info from database"""
+        key_hash = hash_api_key(api_key)
+        
+        try:
+            auth_key = await self.db.authkey.find_unique(
+                where={'keyHash': key_hash}
+            )
+            
+            if auth_key:
+                return self._auth_key_to_api_key(auth_key)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get API key: {e}")
+            return None
+
+    async def update_key_usage(self, api_key: str, audio_duration: float = 0.0, track_request: bool = True):
+        """Update API key usage statistics
+        
+        Args:
+            api_key: The API key to update
+            audio_duration: Audio duration in seconds (optional)
+            track_request: Whether to increment request counters (default: True)
+        """
+        key_hash = hash_api_key(api_key)
+        
+        try:
+            # Build update data based on parameters
+            update_data = {
+                'lastUsed': datetime.now(timezone.utc),
+            }
+            
+            # Only increment request counters if tracking a new request
+            if track_request:
+                update_data.update({
+                    'usageCount': {'increment': 1},
+                    'totalRequests': {'increment': 1},
+                })
+            
+            # Always track audio duration if provided
+            if audio_duration > 0:
+                update_data['totalAudioMinutes'] = {'increment': audio_duration / 60.0}
+            
+            await self.db.authkey.update(
+                where={'keyHash': key_hash},
+                data=update_data
+            )
+        except Exception as e:
+            logger.error(f"Failed to update API key usage: {e}")
+
+    async def revoke_key(self, api_key: str) -> bool:
+        """Revoke (deactivate) an API key"""
+        key_hash = hash_api_key(api_key)
+        
+        try:
+            result = await self.db.authkey.update(
+                where={'keyHash': key_hash},
+                data={'isActive': False}
+            )
+            
+            if result:
+                logger.info(f"Revoked API key: {result.keyId}")
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to revoke API key: {e}")
+            return False
+
+    async def list_keys(self) -> List[APIKey]:
+        """List all API keys"""
+        try:
+            auth_keys = await self.db.authkey.find_many(
+                order={'createdAt': 'desc'}
+            )
+            
+            return [self._auth_key_to_api_key(auth_key) for auth_key in auth_keys]
+            
+        except Exception as e:
+            logger.error(f"Failed to list API keys: {e}")
+            return []
+
+    def _auth_key_to_api_key(self, auth_key) -> APIKey:
+        """Convert Prisma AuthKey model to APIKey pydantic model"""
+        return APIKey(
+            key_id=auth_key.keyId,
+            key_hash=auth_key.keyHash,
+            name=auth_key.name,
+            key_type=APIKeyType(auth_key.keyType),
+            created_at=auth_key.createdAt,
+            last_used=auth_key.lastUsed,
+            usage_count=auth_key.usageCount,
+            is_active=auth_key.isActive,
+            requests_per_minute=auth_key.requestsPerMinute,
+            requests_per_hour=auth_key.requestsPerHour,
+            requests_per_day=auth_key.requestsPerDay,
+            permissions=auth_key.permissions,
+            total_audio_minutes=auth_key.totalAudioMinutes,
+            total_requests=auth_key.totalRequests,
         )
-
-        self._keys[key_hash] = key_info
-        self._save_keys()
-        logger.info(f"Created API key: {key_info.key_id} ({name})")
-        return api_key, key_info
-
-    def get_key(self, api_key: str) -> Optional[APIKey]:
-        key_hash = hash_api_key(api_key)
-        return self._keys.get(key_hash)
-
-    def update_key_usage(self, api_key: str, audio_duration: float = 0.0):
-        key_hash = hash_api_key(api_key)
-        if key_hash in self._keys:
-            key_info = self._keys[key_hash]
-            key_info.last_used = datetime.now(timezone.utc)
-            key_info.usage_count += 1
-            key_info.total_requests += 1
-            key_info.total_audio_minutes += audio_duration / 60.0
-            self._save_keys()
-
-    def revoke_key(self, api_key: str) -> bool:
-        key_hash = hash_api_key(api_key)
-        if key_hash in self._keys:
-            self._keys[key_hash].is_active = False
-            self._save_keys()
-            logger.info(f"Revoked API key: {self._keys[key_hash].key_id}")
-            return True
-        return False
-
-    def list_keys(self) -> List[APIKey]:
-        return list(self._keys.values())
 
 
 # ======================================================
@@ -241,8 +288,15 @@ class RateLimiter:
 # FASTAPI AUTH HANDLERS
 # ======================================================
 
-api_key_store = APIKeyStore()
+# Global instances - will be initialized when app starts
+api_key_store: Optional[PrismaAPIKeyStore] = None
 rate_limiter = RateLimiter()
+
+
+def initialize_auth_store(db: Prisma):
+    """Initialize the API key store with database connection"""
+    global api_key_store
+    api_key_store = PrismaAPIKeyStore(db)
 
 
 class BearerTokenAuth(HTTPBearer):
@@ -252,6 +306,9 @@ class BearerTokenAuth(HTTPBearer):
         super().__init__(auto_error=auto_error)
 
     async def __call__(self, request: Request) -> APIKey:
+        if api_key_store is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Auth service not initialized")
+            
         credentials: HTTPAuthorizationCredentials = await super().__call__(request)
 
         if not credentials or not credentials.credentials:
@@ -262,7 +319,7 @@ class BearerTokenAuth(HTTPBearer):
         if not any(api_key.startswith(kt.value) for kt in APIKeyType):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key format")
 
-        key_info = api_key_store.get_key(api_key)
+        key_info = await api_key_store.get_key(api_key)
         if not key_info or not key_info.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
 
@@ -295,6 +352,7 @@ auth = BearerTokenAuth()
 
 
 def require_permission(permission: str):
+    """Dependency factory for checking permissions"""
     def check_permission(key_info: APIKey = Depends(auth)):
         if permission not in key_info.permissions:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Permission '{permission}' required")
@@ -302,12 +360,24 @@ def require_permission(permission: str):
     return check_permission
 
 
-def update_usage(request: Request, audio_duration: float = 0.0):
-    if hasattr(request.state, 'api_key'):
-        api_key_store.update_key_usage(request.state.api_key, audio_duration)
+async def update_usage(request: Request, audio_duration: float = 0.0):
+    """Update API key usage statistics (tracks both request and audio duration)"""
+    if hasattr(request.state, 'api_key') and api_key_store:
+        await api_key_store.update_key_usage(request.state.api_key, audio_duration, track_request=True)
+
+async def update_request_usage(request: Request):
+    """Track API request usage only (for when request is made)"""
+    if hasattr(request.state, 'api_key') and api_key_store:
+        await api_key_store.update_key_usage(request.state.api_key, audio_duration=0.0, track_request=True)
+
+async def update_audio_usage(api_key: str, audio_duration: float):
+    """Track audio duration usage only (for background processing)"""
+    if api_key_store:
+        await api_key_store.update_key_usage(api_key, audio_duration, track_request=False)
 
 
 def get_rate_limit_headers(request: Request) -> Dict[str, str]:
+    """Get rate limit headers for response"""
     if hasattr(request.state, 'rate_info') and hasattr(request.state, 'key_info'):
         rate_info = request.state.rate_info
         key_info = request.state.key_info

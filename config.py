@@ -42,7 +42,6 @@ class ASRConfig(BaseSettings):
     
     model_config = {
         "env_prefix": "S2A_",
-        "env_file": ".env", 
         "case_sensitive": False,
         "extra": "ignore"  # Allow extra fields in .env
     }
@@ -63,7 +62,6 @@ class PerformanceConfig(BaseSettings):
     
     model_config = {
         "env_prefix": "S2A_PERF_",
-        "env_file": ".env",
         "extra": "ignore"
     }
 
@@ -106,7 +104,6 @@ class IntelligenceConfig(BaseSettings):
     
     model_config = {
         "env_prefix": "S2A_INTEL_",
-        "env_file": ".env",
         "case_sensitive": False,
         "extra": "ignore"
     }
@@ -135,7 +132,6 @@ class IntelligenceMetricsConfig(BaseSettings):
     
     model_config = {
         "env_prefix": "S2A_INTEL_METRICS_",
-        "env_file": ".env",
         "extra": "ignore"
     }
     

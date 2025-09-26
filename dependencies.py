@@ -3,6 +3,7 @@ from loguru import logger
 from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
+from generated.prisma import Prisma
 
 
 # Dependency to get services
@@ -20,7 +21,8 @@ async def process_audio_background(
     callback_url: str,
     asr_svc,
     audio_proc,
-    batch_proc
+    batch_proc,
+    api_key: str = None
 ):
     """Background task for async audio processing"""
     try:
@@ -60,6 +62,11 @@ async def process_audio_background(
         
         # Send webhook with results
         if result:
+            # Track audio duration usage for billing
+            if api_key:
+                from db_services.auth import update_audio_usage
+                await update_audio_usage(api_key, audio_info['duration'])
+            
             webhook_payload = WebhookPayload(
                 job_id=job_id,
                 status="completed",
@@ -93,3 +100,7 @@ async def process_audio_background(
         # Clean up temporary file
         if os.path.exists(audio_path):
             os.unlink(audio_path)
+
+# Dependency to get DB
+async def get_db(request: Request) -> Prisma:
+    return request.app.state.db
