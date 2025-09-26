@@ -4,11 +4,19 @@
 
 ### CPU - Intel Xeon Platinum 8462Y+
 - **Total vCPUs**: 128 (64 physical cores with hyperthreading)
-- **Architecture**: 2 sockets × 32 cores each
-- **Base Frequency**: 2.8GHz
-- **Max Boost Frequency**: 4.1GHz
-- **Cache**: L1d: 3MB, L2 & L3 optimized for server workloads
-- **Features**: AVX-512, Intel AMX, hardware acceleration for AI/ML workloads
+- **Architecture**: 2 sockets × 32 cores each × 2 threads per core
+- **Base Frequency**: 800MHz
+- **Max Boost Frequency**: 4.1GHz (4100MHz)
+- **Cache**:
+  - L1d: 3MB (64 instances)
+  - L1i: 2MB (64 instances)
+  - L2: 128MB (64 instances)
+  - L3: 120MB (2 instances)
+- **NUMA Nodes**: 2
+  - NUMA node0: CPUs 0-31, 64-95
+  - NUMA node1: CPUs 32-63, 96-127
+- **Features**: AVX-512, Intel AMX, FMA, TSX, hardware acceleration for AI/ML workloads
+- **Security**: Enhanced IBRS, IBPB, STIBP mitigations for Spectre/Meltdown
 
 ### Memory (RAM)
 - **Total Capacity**: 503GB (512GB with ~9GB system reserved)
@@ -27,10 +35,15 @@
 - **Temperature**: 68°C (normal operating range)
 
 ### Storage
-- **Total Space**: 439GB
-- **Used**: 374GB (90% utilization)
-- **Available**: 43GB free
-- ⚠️ **Warning**: Disk space approaching capacity - monitor and cleanup recommended
+- **Primary SSD**: 446.6GB (system disk `/dev/sdb`)
+  - Boot partition: 512MB EFI
+  - Root partition: 446.1GB (90% utilization - monitor space)
+  - Used: 374GB
+  - Available: 43GB free
+  - ⚠️ **Warning**: Disk space approaching capacity - monitor and cleanup recommended
+- **Secondary Storage**: 23.3TB HDD (mounted at `/mnt/storage`)
+  - Available for large file storage, models, and backups
+- **Process Count**: ~1,339 active processes
 
 ## Performance Configuration Recommendations
 

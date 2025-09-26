@@ -20,7 +20,9 @@ async def process_audio_background(
     callback_url: str,
     asr_svc,
     audio_proc,
-    batch_proc
+    batch_proc,
+    include_intelligence: bool = False,
+    intelligence_mode: str = "auto_detect"
 ):
     """Background task for async audio processing"""
     try:
@@ -66,17 +68,40 @@ async def process_audio_background(
                 result=result,
                 processing_time=result.get('processing_time')
             )
+
+            # Send transcription webhook
+            asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
+            logger.info(f"Job {job_id} transcription completed, webhook sent to {callback_url}")
+
+            # Process intelligence if requested and transcription succeeded
+            if include_intelligence and result.get('text'):
+                try:
+                    from services.intelligence_integration import process_transcript_intelligence
+
+                    # Process intelligence with multi-stage webhooks
+                    intelligence_result = await process_transcript_intelligence(
+                        job_id=job_id,
+                        transcript=result.get('text'),
+                        callback_url=callback_url,  # Will send progressive webhooks
+                        include_quick=True,
+                        include_enhanced=True
+                    )
+
+                    logger.info(f"Intelligence processing initiated for job {job_id}")
+
+                except Exception as e:
+                    logger.error(f"Intelligence processing failed for job {job_id}: {e}")
+                    # Don't fail the entire job if intelligence fails
+
         else:
             webhook_payload = WebhookPayload(
                 job_id=job_id,
                 status="failed",
                 error="Transcription processing failed"
             )
-        
-        # Send webhook asynchronously (don't wait for it)
-        asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
-        
-        logger.info(f"Job {job_id} completed and webhook sent to {callback_url}")
+
+            # Send webhook asynchronously (don't wait for it)
+            asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
         
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")

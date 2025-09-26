@@ -6,7 +6,7 @@ Process customer support transcriptions using Action Pipeline
 import json
 import os
 from typing import List, Dict, Any
-from action_pipeline import ActionPipelineExtractor, UnifiedPayload
+from .action_pipeline import ActionPipelineExtractor, UnifiedPayload
 
 
 class TranscriptionProcessor:

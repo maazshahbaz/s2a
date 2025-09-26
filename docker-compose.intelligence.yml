@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # Main S2A ASR Service
+  s2a-api:
+    build: .
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
+    ports:
+      - "8001:8001" # API port
+      - "9090:9090" # Prometheus metrics port
+    volumes:
+      - ./logs:/app/logs
+      - /tmp/s2a:/tmp/s2a
+      - /mnt/storage:/mnt/storage:ro # Mount large storage for models
+    environment:
+      # ASR Configuration
+      - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
+      - S2A_DEVICE=cuda
+      - S2A_BATCH_SIZE=8
+      - S2A_MAX_CHUNK_DURATION=1440 # 24 minutes
+      - S2A_MIN_AUDIO_DURATION=5.0
+      - S2A_LOG_LEVEL=INFO
+      - S2A_ENABLE_MIXED_PRECISION=true
+      - S2A_GPU_MEMORY_FRACTION=0.4  # Reduced for vLLM coexistence
+      - S2A_NUM_WORKERS=2
+
+      # Intelligence Configuration
+      - S2A_INTEL_ENABLED=true
+      - S2A_INTEL_VLLM_BASE_URL=http://vllm-service:8000/v1
+      - S2A_INTEL_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+      - S2A_INTEL_TEMPERATURE=0.2
+      - S2A_INTEL_MAX_TOKENS=1500
+      - S2A_INTEL_TIMEOUT_SECONDS=30.0
+      - S2A_INTEL_QUEUE_MAX_SIZE=200
+      - S2A_INTEL_PROCESSING_TIMEOUT=600.0
+      - S2A_INTEL_AUTO_PROCESS=true
+      - S2A_INTEL_RETRY_ATTEMPTS=2
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    restart: unless-stopped
+    depends_on:
+      vllm-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - s2a-network
+
+  # vLLM Intelligence Service
+  vllm-service:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000" # vLLM API port
+    volumes:
+      - /mnt/storage/models:/models:rw # Model cache on large storage
+      - ./vllm-logs:/logs
+    environment:
+      - MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+      - DTYPE=bfloat16
+      - MAX_MODEL_LEN=16000
+      - GPU_MEMORY_UTILIZATION=0.5  # Share GPU with ASR service
+      - TRUST_REMOTE_CODE=true
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MAX_NUM_SEQS=256
+      - TENSOR_PARALLEL_SIZE=1
+      - QUANTIZATION=none
+    command: [
+      "python", "-m", "vllm.entrypoints.openai.api_server",
+      "--model", "Qwen/Qwen2.5-7B-Instruct",
+      "--dtype", "bfloat16",
+      "--max-model-len", "16000",
+      "--gpu-memory-utilization", "0.5",
+      "--trust-remote-code",
+      "--port", "8000",
+      "--host", "0.0.0.0",
+      "--max-num-seqs", "256",
+      "--tensor-parallel-size", "1"
+    ]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s # vLLM takes longer to start
+    networks:
+      - s2a-network
+
+  # Redis for caching (optional but recommended)
+  redis-cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - s2a-network
+
+  # Monitoring services (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - s2a-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    networks:
+      - s2a-network
+
+networks:
+  s2a-network:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  redis_data:

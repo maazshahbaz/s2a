@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTTPException, Form, BackgroundTasks
-from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
+from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse, QuickIntelligence, EnhancedIntelligenceStatus
 import os
 from dependencies import get_services
 from services.auth import require_permission, update_usage, get_rate_limit_headers, APIKey
@@ -10,6 +10,8 @@ from pathlib import Path
 from loguru import logger
 from webhook import webhook_sender
 from dependencies import process_audio_background
+from datetime import datetime, timedelta
+import asyncio
 
 router = APIRouter(prefix="/transcription", tags=["Transcription"])
 
@@ -20,6 +22,8 @@ async def transcribe_sync(
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
+    include_intelligence: bool = False,
+    intelligence_mode: str = "auto_detect",
     key_info: APIKey = Depends(require_permission("transcribe")),
     services = Depends(get_services)
 ):
@@ -74,10 +78,52 @@ async def transcribe_sync(
         
         # Transcribe using ASR service
         result = await asr_svc.transcribe_audio(tmp_file_path)
-        
+
         # Update usage statistics
         update_usage(request, result.duration)
-        
+
+        # Process intelligence if requested
+        quick_intelligence = None
+        enhanced_intelligence_status = None
+
+        if include_intelligence and result.text:
+            try:
+                from services.intelligence_integration import process_transcript_intelligence
+
+                # Process intelligence (quick only for sync endpoint)
+                intelligence_result = await process_transcript_intelligence(
+                    job_id=job_id,
+                    transcript=result.text,
+                    callback_url=None,  # No webhook for sync endpoint
+                    include_quick=True,
+                    include_enhanced=False  # Don't wait for enhanced in sync
+                )
+
+                # Extract quick intelligence if available
+                if intelligence_result.get("quick_intelligence"):
+                    qi = intelligence_result["quick_intelligence"]
+                    quick_intelligence = QuickIntelligence(
+                        summary=qi.get("summary", ""),
+                        intent=qi.get("intent", "general_discussion"),
+                        sentiment=qi.get("sentiment", "neutral"),
+                        action_items=qi.get("action_items", []),
+                        key_entities=qi.get("key_entities", []),
+                        confidence_score=qi.get("confidence_score", 0.8),
+                        processing_time=qi.get("processing_time", 0)
+                    )
+
+                # Note: Enhanced intelligence would be submitted but not waited for
+                if intelligence_result.get("enhanced_intelligence_submitted"):
+                    enhanced_intelligence_status = EnhancedIntelligenceStatus(
+                        job_id=intelligence_result.get("enhanced_job_id", ""),
+                        status="processing",
+                        estimated_completion=(datetime.utcnow() + timedelta(seconds=15)).isoformat()
+                    )
+
+            except Exception as e:
+                logger.warning(f"Intelligence processing failed for job {job_id}: {e}")
+                # Continue without intelligence rather than failing the entire request
+
         return TranscriptionResponse(
             job_id=job_id,
             status="completed",
@@ -87,7 +133,9 @@ async def transcribe_sync(
             processing_time=result.processing_time,
             chunks=len(result.chunks) if result.chunks else 1,
             confidence=result.confidence,
-            audio_quality=audio_info.get('quality_metrics')
+            audio_quality=audio_info.get('quality_metrics'),
+            quick_intelligence=quick_intelligence,
+            enhanced_intelligence_status=enhanced_intelligence_status
         )
         
     except Exception as e:
@@ -108,6 +156,8 @@ async def transcribe_async(
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
     remove_silence: bool = False,
+    include_intelligence: bool = True,
+    intelligence_mode: str = "auto_detect",
     priority: int = 0,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
@@ -135,11 +185,11 @@ async def transcribe_async(
         tmp_file.write(content)
         tmp_file_path = tmp_file.name
     
-    # Add to background processing
+    # Add to background processing with intelligence parameters
     background_tasks.add_task(
         process_audio_background,
         job_id, tmp_file_path, enhance_audio, remove_silence, priority, callback_url,
-        asr_svc, audio_proc, batch_proc
+        asr_svc, audio_proc, batch_proc, include_intelligence, intelligence_mode
     )
     
     return TranscribeAsyncResponse(job_id=job_id, status="accepted")
