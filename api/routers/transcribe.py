@@ -2,16 +2,17 @@ from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTT
 from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse, QuickIntelligence, EnhancedIntelligenceStatus
 import os
 from dependencies import get_services
-from services.auth import require_permission, update_usage, get_rate_limit_headers, APIKey
+from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
+from dependencies import get_services, get_transcription_service
+from db_services.auth import require_permission, update_usage, update_request_usage, get_rate_limit_headers, APIKey
+from db_services.transcription import store_uploaded_file
 import uuid
-import tempfile
 from config import get_settings
-from pathlib import Path
 from loguru import logger
 from webhook import webhook_sender
-from dependencies import process_audio_background
 from datetime import datetime, timedelta
 import asyncio
+from dependencies import process_audio_background_db
 
 router = APIRouter(prefix="/transcription", tags=["Transcription"])
 
@@ -25,7 +26,8 @@ async def transcribe_sync(
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
     key_info: APIKey = Depends(require_permission("transcribe")),
-    services = Depends(get_services)
+    services = Depends(get_services),
+    transcription_svc = Depends(get_transcription_service)
 ):
     """Synchronous transcription endpoint - requires transcribe permission"""
     asr_svc, audio_proc, batch_proc = services
@@ -35,26 +37,35 @@ async def transcribe_sync(
     headers = get_rate_limit_headers(request)
     for key, value in headers.items():
         response.headers[key] = value
-    print(audio_file)
+    
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
-    # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(audio_file.filename).suffix) as tmp_file:
-        content = await audio_file.read()
-        tmp_file.write(content)
-        tmp_file_path = tmp_file.name
+    # Store uploaded file permanently
+    audio_path = await store_uploaded_file(audio_file, job_id)
     
     try:
-        # Process audio
+        # Process audio to get duration and validate
         audio, sr, audio_info = audio_proc.process_audio_file(
-            tmp_file_path,
+            audio_path,
             enhance=enhance_audio,
             validate=True
         )
         
+        # Create job record in database
+        job = await transcription_svc.create_job(
+            job_id=job_id,
+            audio_path=audio_path,
+            is_async=False,
+            enhance_audio=enhance_audio,
+            remove_silence=remove_silence,
+            audio_duration=audio_info['duration']
+        )
+        
         # Check minimum duration (both sync/async same rule)
         if audio_info['duration'] < asr_svc.min_audio_duration:
+            await transcription_svc.update_job_status(job_id, 'rejected', 
+                                                    error_message="Audio too short. Minimum duration is 5 seconds.")
             return TranscriptionResponse(
                 job_id=job_id,
                 status="rejected",
@@ -67,14 +78,19 @@ async def transcribe_sync(
         # Check maximum duration for SYNC API (2 minutes max)
         settings = get_settings()
         if audio_info['duration'] > settings.max_sync_audio_duration:
+            error_msg = f"Audio too long for sync API. Maximum duration is {settings.max_sync_audio_duration/60:.0f} minutes. Please use async API for longer audio."
+            await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
             return TranscriptionResponse(
                 job_id=job_id,
                 status="rejected", 
-                text=f"Audio too long for sync API. Maximum duration is {settings.max_sync_audio_duration/60:.0f} minutes. Please use async API for longer audio.",
+                text=error_msg,
                 duration=audio_info['duration'],
                 rtf=0,
                 processing_time=0
             )
+        
+        # Update job status to processing
+        await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.utcnow())
         
         # Transcribe using ASR service
         result = await asr_svc.transcribe_audio(tmp_file_path)
@@ -124,6 +140,22 @@ async def transcribe_sync(
                 logger.warning(f"Intelligence processing failed for job {job_id}: {e}")
                 # Continue without intelligence rather than failing the entire request
 
+        result = await asr_svc.transcribe_audio(audio_path)
+        
+        # Save transcription result to database (this also updates job status to completed)
+        await transcription_svc.save_transcription_result(
+            job_id=job_id,
+            text=result.text,
+            confidence=result.confidence,
+            rtf=result.rtf,
+            processing_time=result.processing_time,
+            chunks=len(result.chunks) if result.chunks else 1,
+            audio_quality=audio_info.get('quality_metrics')
+        )
+        
+        # Update usage statistics
+        await update_usage(request, result.duration)
+        
         return TranscriptionResponse(
             job_id=job_id,
             status="completed",
@@ -140,12 +172,9 @@ async def transcribe_sync(
         
     except Exception as e:
         logger.error(f"Error transcribing audio: {e}")
+        # Update job status to failed
+        await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
-    
-    finally:
-        # Clean up temporary file
-        if os.path.exists(tmp_file_path):
-            os.unlink(tmp_file_path)
 
 
 @router.post("/transcribe/async", response_model=TranscribeAsyncResponse)
@@ -161,7 +190,8 @@ async def transcribe_async(
     priority: int = 0,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
-    services = Depends(get_services)
+    services = Depends(get_services),
+    transcription_svc = Depends(get_transcription_service)
 ):
     """Asynchronous transcription endpoint - requires transcribe permission and callback_url"""
     asr_svc, audio_proc, batch_proc = services
@@ -176,23 +206,54 @@ async def transcribe_async(
     for key, value in headers.items():
         response.headers[key] = value
     
+    # Track API request usage immediately
+    await update_request_usage(request)
+    
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
     
-    # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(audio_file.filename).suffix) as tmp_file:
-        content = await audio_file.read()
-        tmp_file.write(content)
-        tmp_file_path = tmp_file.name
+    # Store uploaded file permanently
+    audio_path = await store_uploaded_file(audio_file, job_id)
     
-    # Add to background processing with intelligence parameters
-    background_tasks.add_task(
-        process_audio_background,
-        job_id, tmp_file_path, enhance_audio, remove_silence, priority, callback_url,
-        asr_svc, audio_proc, batch_proc, include_intelligence, intelligence_mode
-    )
-    
-    return TranscribeAsyncResponse(job_id=job_id, status="accepted")
+    try:
+        # Get audio info for duration
+        audio, sr, audio_info = audio_proc.process_audio_file(
+            audio_path,
+            enhance=enhance_audio,
+            validate=True
+        )
+        
+        # Create job record in database
+        job = await transcription_svc.create_job(
+            job_id=job_id,
+            audio_path=audio_path,
+            is_async=True,
+            enhance_audio=enhance_audio,
+            remove_silence=remove_silence,
+            priority=priority,
+            callback_url=callback_url,
+            audio_duration=audio_info['duration']
+        )
+        
+        # Add to background processing
+        background_tasks.add_task(
+            process_audio_background_db,
+            job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
+            asr_svc, audio_proc, batch_proc, request.state.api_key, transcription_svc,
+         tmp_file_path,
+           include_intelligence, intelligence_mode
+        )
+        
+        return TranscribeAsyncResponse(job_id=job_id, status="accepted")
+        
+    except Exception as e:
+        logger.error(f"Error setting up async job {job_id}: {e}")
+        # Update job status to failed if it was created
+        try:
+            await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to set up async transcription: {str(e)}")
 
 @router.get("/status/{job_id}", response_model=StatusResponse)
 async def get_transcription_status(
@@ -200,7 +261,8 @@ async def get_transcription_status(
     request: Request,
     response: Response,
     key_info: APIKey = Depends(require_permission("status")),
-    services = Depends(get_services)
+    services = Depends(get_services),
+    transcription_svc = Depends(get_transcription_service)
 ):
     """Get status of async transcription job - requires status permission"""
     asr_svc, audio_proc, batch_proc = services
@@ -210,43 +272,48 @@ async def get_transcription_status(
     for key, value in headers.items():
         response.headers[key] = value
     
-    # Try to get result from batch processor
-    result_job = await batch_proc.batcher.get_result(job_id, timeout=0.1)
+    # Get job from database
+    job = await transcription_svc.get_job(job_id)
     
-    if result_job is None:
-        # Check if job is still processing
-        async with batch_proc.batcher._lock:
-            if job_id in batch_proc.batcher.processing_jobs:
-                return StatusResponse(job_id=job_id, status="processing")
-        
+    if job is None:
         return StatusResponse(job_id=job_id, status="not_found")
     
-    if result_job.status.value == "failed":
+    # Return status based on job status
+    if job.status == "failed":
         return StatusResponse(
             job_id=job_id,
             status="failed",
-            error=result_job.error
+            error=job.errorMessage
         )
-    
-    # Convert result to response format
-    result = result_job.result
-    response = TranscriptionResponse(
-        job_id=job_id,
-        status="completed",
-        text=result.get('text', ''),
-        duration=result.get('duration', 0),
-        rtf=result.get('rtf', 0),
-        processing_time=result.get('processing_time', 0),
-        chunks=1,  # Batch processing uses single chunks
-        confidence=None,
-        audio_quality=result_job.metadata.get('quality_metrics')
-    )
-    
-    return StatusResponse(
-        job_id=job_id,
-        status="completed",
-        result=response
-    )
+    elif job.status == "rejected":
+        return StatusResponse(
+            job_id=job_id,
+            status="rejected",
+            error=job.errorMessage
+        )
+    elif job.status == "completed" and job.transcriptionResult:
+        # Job is completed with results
+        result = job.transcriptionResult
+        transcription_response = TranscriptionResponse(
+            job_id=job_id,
+            status="completed",
+            text=result.text,
+            duration=job.audioDuration or 0,
+            rtf=result.rtf or 0,
+            processing_time=result.processingTime or 0,
+            chunks=result.chunks or 1,
+            confidence=result.confidence,
+            audio_quality=result.audioQuality
+        )
+        
+        return StatusResponse(
+            job_id=job_id,
+            status="completed",
+            result=transcription_response
+        )
+    else:
+        # Job is pending or processing
+        return StatusResponse(job_id=job_id, status=job.status)
 
 
 @router.delete("/jobs/{job_id}")
