@@ -108,6 +108,7 @@ class TranscriptionResult:
     confidence: float
     processing_time: float
     rtf: float  # Real-time factor
+    status:str
     chunks: int = 1
     audio_quality: Optional[Dict[str, Any]] = None
 
