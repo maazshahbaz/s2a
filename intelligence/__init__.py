@@ -16,7 +16,6 @@ from .enhanced_schema import (
     EnhancedBusinessIntelligence,
     SalesIntelligence,
     SupportIntelligence,
-    ExtractionMode
 )
 
 from .enhanced_extractor import EnhancedExtractor
