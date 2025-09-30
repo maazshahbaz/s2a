@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTTPException, Form, BackgroundTasks
-from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse, QuickIntelligence, EnhancedIntelligenceStatus
+from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 import os
 from dependencies import get_services
 from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
