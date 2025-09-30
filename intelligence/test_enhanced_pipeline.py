@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any
 
-from enhanced_extractor import EnhancedExtractor, ExtractionMode
+from .enhanced_extractor import EnhancedExtractor, ExtractionMode
 from intelligence_service import IntelligenceService
 
 

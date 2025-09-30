@@ -15,7 +15,7 @@ from enum import Enum
 from loguru import logger
 from pydantic import BaseModel
 
-from enhanced_extractor import EnhancedExtractor, ExtractionMode
+from .enhanced_extractor import EnhancedExtractor, ExtractionMode
 from .enhanced_schema import EnhancedBusinessIntelligence, SalesIntelligence, SupportIntelligence
 from config import get_intelligence_settings
 
