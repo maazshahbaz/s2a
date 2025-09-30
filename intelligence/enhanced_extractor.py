@@ -14,7 +14,7 @@ from enum import Enum
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from enhanced_schema import (
+from .enhanced_schema import (
     EnhancedBusinessIntelligence, SalesIntelligence, SupportIntelligence,
     CallType, Intent, Sentiment, Priority, CustomerStage, IssueStatus
 )
