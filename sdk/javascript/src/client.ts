@@ -322,7 +322,7 @@ export class S2AClient {
       const response = await this.httpClient.get('/v1/statistics/health');
       return response.data;
     } catch (error) {
-      return { status: 'unhealthy', error: error.toString() };
+      return { status: 'unhealthy', error: (error as Error).toString() };
     }
   }
 

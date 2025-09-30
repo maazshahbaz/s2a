@@ -11,8 +11,17 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
 # Read requirements
 requirements = []
-with open('requirements.txt') as f:
-    requirements = f.read().splitlines()
+try:
+    with open('requirements.txt') as f:
+        requirements = [line.strip() for line in f.read().splitlines() 
+                       if line.strip() and not line.strip().startswith('#')]
+except FileNotFoundError:
+    # Fallback requirements if file not found
+    requirements = [
+        "httpx>=0.25.0",
+        "pydantic>=2.0.0", 
+        "typing-extensions>=4.0.0"
+    ]
 
 setup(
     name="s2a-sdk",
