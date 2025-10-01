@@ -216,21 +216,31 @@ class AsyncJob:
     """Represents an async processing job"""
     job_id: str
     status: JobStatusType
-    created_at: datetime
-    callback_url: Optional[str] = None
-    priority: Priority = Priority.NORMAL
-    estimated_completion: Optional[datetime] = None
+
+@dataclass
+class JobStatusResult:
+    """Detailed transcription result when job is completed"""
+    job_id: str
+    status: str
+    text: Optional[str] = None
+    duration: Optional[float] = None
+    rtf: Optional[float] = None
+    processing_time: Optional[float] = None
+    chunks: Optional[int] = None
+    confidence: Optional[float] = None
+    audio_quality: Optional[Dict] = None
+    # Intelligence fields
+    quick_intelligence: Optional["QuickIntelligence"] = None
+    enhanced_intelligence_status: Optional["EnhancedIntelligenceStatus"] = None
 
 
 @dataclass
 class JobStatus:
-    """Current status of a processing job"""
+    """Current status of a transcription job (mirrors StatusResponse)"""
     job_id: str
-    status: JobStatusType
-    progress_percent: Optional[int] = None
-    processing_time: Optional[float] = None
-    error_message: Optional[str] = None
-    result_available: bool = False
+    status: str   # pending, processing, completed, failed, rejected
+    result: Optional[JobStatusResult] = None
+    error: Optional[str] = None
 
 
 # Exception Classes
