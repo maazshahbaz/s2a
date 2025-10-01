@@ -131,7 +131,7 @@ export class S2AClient {
     formData.append('remove_silence', String(options.removeSilence ?? false));
     formData.append('priority', options.priority ?? Priority.NORMAL);
 
-    const response = await this.httpClient.post('/v1/transcription/transcribe_async', formData, {
+    const response = await this.httpClient.post('/v1/transcription/transcribe/async', formData, {
       headers: formData.getHeaders?.() || { 'Content-Type': 'multipart/form-data' }
     });
 
