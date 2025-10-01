@@ -258,7 +258,7 @@ export class S2AClient {
       }
 
       if (status.status === JobStatusType.FAILED) {
-        throw new S2AError(`Job failed: ${status.errorMessage}`);
+        throw new S2AError(`Job failed: ${status.error}`);
       }
 
       if (Date.now() - startTime > timeout) {
@@ -378,27 +378,25 @@ export class S2AClient {
     }
   }
 
-  private parseTranscriptionResponse(data: any): TranscriptionResult {
-    return {
-      jobId: data.job_id,
-      text: data.text || '',
-      duration: data.duration || 0,
-      confidence: data.confidence || 0,
-      processingTime: data.processing_time || 0,
-      rtf: data.rtf || 0,
-      chunks: data.chunks || 1,
-      audioQuality: data.audio_quality
-    };
-  }
-
+private parseTranscriptionResponse(data: any): TranscriptionResult {
+  return {
+    jobId: data.job_id,
+    status: data.status,
+    text: data.text || '',
+    duration: data.duration ||0,
+    rtf: data.rtf || 0,
+    processingTime: data.processing_time ||0,
+    chunks: data.chunks || 1,
+    confidence: data.confidence || 0,
+    audioQuality: data.audio_quality,
+    quickIntelligence: data.quick_intelligence ?? null,
+    enhancedIntelligenceStatus: data.enhanced_intelligence_status ?? null
+  };
+}
   private parseAsyncJobResponse(data: any): AsyncJob {
     return {
       jobId: data.job_id,
       status: data.status as JobStatusType,
-      createdAt: new Date(data.created_at),
-      callbackUrl: data.callback_url,
-      priority: data.priority as Priority,
-      estimatedCompletion: data.estimated_completion ? new Date(data.estimated_completion) : undefined
     };
   }
 
@@ -406,10 +404,22 @@ export class S2AClient {
     return {
       jobId: data.job_id,
       status: data.status as JobStatusType,
-      progressPercent: data.progress_percent,
-      processingTime: data.processing_time,
-      errorMessage: data.error_message,
-      resultAvailable: data.result_available || false
+      error: data.error ,
+      result: data.result
+      ? {
+          jobId: data.result.job_id,
+          status: data.result.status,
+          text: data.result.text ?? null,
+          duration: data.result.duration ?? null,
+          rtf: data.result.rtf ?? null,
+          processingTime: data.result.processing_time ?? null,
+          chunks: data.result.chunks ?? null,
+          confidence: data.result.confidence ?? null,
+          audioQuality: data.result.audio_quality ?? null,
+          quickIntelligence: data.result.quick_intelligence ?? null,
+          enhancedIntelligenceStatus: data.result.enhanced_intelligence_status ?? null
+        }
+      : null
     };
   }
 

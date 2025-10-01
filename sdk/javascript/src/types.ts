@@ -65,13 +65,16 @@ export interface ConversationMetrics {
 // Result types
 export interface TranscriptionResult {
   jobId: string;
+  status: string;
   text: string;
   duration: number;
-  confidence: number;
-  processingTime: number;
-  rtf: number;
+  rtf: number ;
+  processingTime: number ;
   chunks: number;
-  audioQuality?: Record<string, any>;
+  confidence: number ;
+  audioQuality?: Record<string, any> ;
+  quickIntelligence?: QuickIntelligenceResult | null;
+  enhancedIntelligenceStatus?: IntelligenceResult | null;
 }
 
 export interface QuickIntelligenceResult {
@@ -131,19 +134,13 @@ export interface CompleteResult {
 export interface AsyncJob {
   jobId: string;
   status: JobStatusType;
-  createdAt: Date;
-  callbackUrl?: string;
-  priority: Priority;
-  estimatedCompletion?: Date;
 }
 
 export interface JobStatus {
   jobId: string;
-  status: JobStatusType;
-  progressPercent?: number;
-  processingTime?: number;
-  errorMessage?: string;
-  resultAvailable: boolean;
+  status: string;
+  error?: string | null;
+  result?: TranscriptionResult | null;
 }
 
 // Request types
