@@ -262,3 +262,23 @@ class SupportIntelligence(EnhancedBusinessIntelligence):
     knowledge_gaps: List[str] = Field(default_factory=list, description="Areas where agent needed help")
     customer_effort_score: Optional[int] = Field(None, description="Estimated customer effort 1-10", ge=1, le=10)
     first_call_resolution: Optional[bool] = Field(None, description="Was issue resolved in first call")
+
+class IntelligenceMetrics(BaseModel):
+    """Intelligence service metrics"""
+    total_jobs_processed: int = 0
+    successful_extractions: int = 0
+    failed_extractions: int = 0
+    average_processing_time: float = 0.0
+    queue_size: int = 0
+    active_workers: int = 0
+    uptime_hours: float = 0.0
+    last_job_processed: Optional[str] = None
+
+    # Mode-specific metrics
+    sales_jobs: int = 0
+    support_jobs: int = 0
+    general_jobs: int = 0
+
+    # Quality metrics
+    avg_confidence_score: float = 0.0
+    extraction_field_rates: Dict[str, float] = {}

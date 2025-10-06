@@ -5,67 +5,14 @@ Integrates enhanced business intelligence extraction with the main S2A transcrip
 """
 
 import asyncio
-import json
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
-from enum import Enum
-
 from loguru import logger
-from pydantic import BaseModel
-
 from .enhanced_extractor import EnhancedExtractor, ExtractionMode
-from .enhanced_schema import EnhancedBusinessIntelligence, SalesIntelligence, SupportIntelligence
+from .enhanced_schema import IntelligenceMetrics
 from config import get_intelligence_settings
-
-
-class ProcessingStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-
-
-@dataclass
-class IntelligenceJob:
-    """Intelligence processing job"""
-    job_id: str
-    transcript_id: str
-    transcript_text: str
-    mode: ExtractionMode = ExtractionMode.AUTO_DETECT
-    priority: str = "normal"  # high, normal, low
-    created_at: datetime = None
-    status: ProcessingStatus = ProcessingStatus.PENDING
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    processing_time: Optional[float] = None
-
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-
-
-class IntelligenceMetrics(BaseModel):
-    """Intelligence service metrics"""
-    total_jobs_processed: int = 0
-    successful_extractions: int = 0
-    failed_extractions: int = 0
-    average_processing_time: float = 0.0
-    queue_size: int = 0
-    active_workers: int = 0
-    uptime_hours: float = 0.0
-    last_job_processed: Optional[str] = None
-
-    # Mode-specific metrics
-    sales_jobs: int = 0
-    support_jobs: int = 0
-    general_jobs: int = 0
-
-    # Quality metrics
-    avg_confidence_score: float = 0.0
-    extraction_field_rates: Dict[str, float] = {}
+from .intelligence_dataclass import IntelligenceJob, ProcessingStatus
 
 
 class IntelligenceService:

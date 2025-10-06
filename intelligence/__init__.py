@@ -16,6 +16,7 @@ from .enhanced_schema import (
     EnhancedBusinessIntelligence,
     SalesIntelligence,
     SupportIntelligence,
+    IntelligenceMetrics
 )
 
 from .enhanced_extractor import EnhancedExtractor
@@ -36,6 +37,7 @@ __all__ = [
     "EnhancedBusinessIntelligence",
     "SalesIntelligence",
     "SupportIntelligence",
+    "IntelligenceMetrics",
     "ExtractionMode",
     "EnhancedExtractor",
     "IntelligenceService",
