@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-py"
+  output   = "../generated/prisma"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AuthKey {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) // internal DB id
+  keyId             String    @unique @map("key_id")
+  keyHash           String    @unique @map("key_hash")
+  name              String
+  keyType           String    @map("key_type")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  lastUsed          DateTime? @map("last_used")
+  usageCount        Int       @default(0) @map("usage_count")
+  isActive          Boolean   @default(true) @map("is_active")
+  requestsPerMinute Int       @default(60) @map("requests_per_minute")
+  requestsPerHour   Int       @default(1000) @map("requests_per_hour")
+  requestsPerDay    Int       @default(10000) @map("requests_per_day")
+  totalAudioMinutes Float     @default(0.0) @map("total_audio_minutes")
+  totalRequests     Int       @default(0) @map("total_requests")
+  permissions       String[] // array of permissions: ["transcribe", "status", "stats"]
+
+  @@map("auth_keys") // table name
+}
+
+model TranscriptionJob {
+  id             String   @id @default(dbgenerated("gen_random_uuid()"))
+  jobId          String   @unique @map("job_id") // UUID for external reference
+  audioPath      String   @map("audio_path") // Path to stored audio file
+  status         String   @default("pending") // pending, processing, completed, failed, rejected
+  isAsync        Boolean  @map("is_async") // sync or async processing
+  enhanceAudio   Boolean  @default(true) @map("enhance_audio")
+  removeSilence  Boolean  @default(false) @map("remove_silence")
+  priority       Int      @default(0) // for async jobs
+  callbackUrl    String?  @map("callback_url") // for async jobs
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  audioDuration  Float?   @map("audio_duration") // in seconds
+  errorMessage   String?  @map("error_message")
+  
+  // Relations
+  transcriptionResult TranscriptionResult?
+
+  @@map("transcription_jobs")
+}
+
+model TranscriptionResult {
+  id              String   @id @default(dbgenerated("gen_random_uuid()"))
+  jobId           String   @unique @map("job_id") // foreign key
+  text            String
+  confidence      Float?
+  rtf             Float?   // real-time factor
+  processingTime  Float?   @map("processing_time") // in seconds
+  chunks          Int?     @default(1)
+  audioQuality    Json?    @map("audio_quality") // quality metrics as JSON
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  transcriptionJob TranscriptionJob @relation(fields: [jobId], references: [jobId])
+
+  @@map("transcription_results")
+}

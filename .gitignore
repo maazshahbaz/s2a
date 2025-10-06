@@ -1,3 +1,4 @@
+CLAUDE.md
 # Python
 __pycache__/
 .claude
@@ -26,6 +27,7 @@ MANIFEST
 
 # Virtual environments
 .env
+.env.dev
 .venv
 env/
 venv/
@@ -86,3 +88,8 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+/generated/prisma
+
+# node_modules
+node_modules
