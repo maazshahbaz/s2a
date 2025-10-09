@@ -228,25 +228,12 @@ All API endpoints (except `/v1/statistics/health`) require Bearer token authenti
 curl -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
      https://bytepulseai.com/v1/transcription/transcribe
 ```
-
-### Synchronous Transcription
-**Duration Limit**: Maximum 2 minutes
-**Response**: Immediate transcription result
-
-```bash
-curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
-  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
-  -H "Content-Type: multipart/form-data" \
-  -F "audio_file=@sample.wav" \
-  -F "enhance_audio=true"
-```
-
 ### Asynchronous Transcription
-**Duration Limit**: Maximum 2 hours
+**Duration Limit**: Minimum 1 sec and Maximum 5 hours
 **Response**: Job ID with webhook callback when complete
 ```bash
 # Submit job
-curl -X POST "https://bytepulseai.com/v1/transcription/transcribe/async" \
+curl -X POST "https://bytepulseai.com/v1/transcribe" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
   -H "Content-Type: multipart/form-data" \
   -F "audio_file=@long_audio.mp3" \
@@ -254,7 +241,7 @@ curl -X POST "https://bytepulseai.com/v1/transcription/transcribe/async" \
   -F "priority=1"
 
 # Check status
-curl "https://bytepulseai.com/v1/transcription/status/{job_id}" \
+curl "https://bytepulseai.com/v1/transcribe/status/{job_id}" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY"
 ```
 
@@ -427,9 +414,10 @@ nvidia-smi
 docker-compose logs -f s2a-api
 
 # Test with sample audio
-curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
+curl -X POST "https://bytepulseai.com/v1/transcribe" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
-  -F "audio_file=@test_audio.wav"
+  -F "audio_file=@test_audio.wav" \
+  -F "callback_url=https://your-app.com/webhook"
 
 # Monitor performance
 curl "https://bytepulseai.com/v1/statistics/stats" \

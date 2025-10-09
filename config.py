@@ -11,9 +11,10 @@ class ASRConfig(BaseSettings):
     # Processing parameters
     batch_size: int = Field(default=4, description="Batch size for processing")
     max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds")
-    min_audio_duration: float = Field(default=5.0, description="Minimum audio duration to process")
-    max_sync_audio_duration: float = Field(default=2 * 60, description="Maximum audio duration for sync API (2 minutes)")
+    min_audio_duration: float = Field(default=1.0, description="Minimum audio duration to process")
+    max_sync_audio_duration: float = Field(default=2 * 60, description="Maximum audio duration for API (2 minutes)")
     max_async_audio_duration: float = Field(default=2 * 60 * 60, description="Maximum audio duration for async API (2 hours)")
+    max_audio_duration: float = Field(default=5 * 60 * 60, description="Maximum audio duration for async API (5 hours)")
     target_sample_rate: int = Field(default=16000, description="Target sample rate for audio")
     
     # Batch processing

@@ -28,54 +28,9 @@
 
 ## 📍 Complete Endpoint Map
 
-### 1️⃣ **Transcription Endpoints** (`/v1/transcription/*`)
+### 1️⃣ **Transcription Endpoints** (`/v1/transcribe/*`)
 
-#### `/v1/transcription/transcribe` [POST]
-**Purpose**: Synchronous transcription with optional intelligence
-```python
-Request:
-  - audio_file: UploadFile (required)
-  - enhance_audio: bool = True
-  - remove_silence: bool = False
-  - include_intelligence: bool = False  # NEW
-  - intelligence_mode: str = "auto_detect"  # NEW
-
-Response:
-{
-  "job_id": "uuid",
-  "status": "completed",
-  "text": "Full transcript...",
-  "duration": 120.5,
-  "rtf": 0.05,
-  "quick_intelligence": {  # If include_intelligence=true
-    "summary": "Meeting discussed Q4 targets...",
-    "intent": "sales_planning",
-    "sentiment": "positive",
-    "action_items": [...],
-    "key_entities": ["John", "Acme Corp"],
-    "processing_time": 1.2
-  },
-  "enhanced_intelligence_status": {  # Background processing
-    "job_id": "intel-uuid",
-    "status": "processing",
-    "estimated_completion": "2024-01-15T10:30:45Z"
-  }
-}
-```
-
-**Workflow**:
-```
-1. Client uploads audio → API Gateway
-2. Audio validation & preprocessing
-3. ASR Service transcribes (GPU: 40%)
-4. If include_intelligence=true:
-   a. Quick intelligence extracted (1-2s)
-   b. Enhanced intelligence job queued
-5. Return transcript + quick intelligence
-6. Enhanced intelligence processes in background
-```
-
-#### `/v1/transcription/transcribe/async` [POST]
+#### `/v1/transcribe` [POST]
 **Purpose**: Asynchronous transcription with webhook delivery
 ```python
 Request:
@@ -89,7 +44,8 @@ Request:
 Response:
 {
   "job_id": "uuid",
-  "status": "accepted"
+  "status": "accepted",
+  "reason (Optional)": ""
 }
 ```
 
@@ -127,7 +83,7 @@ Response:
    }
 ```
 
-#### `/v1/transcription/status/{job_id}` [GET]
+#### `/v1/transcribe/status/{job_id}` [GET]
 **Purpose**: Check async job status
 ```python
 Response:
@@ -138,7 +94,7 @@ Response:
 }
 ```
 
-#### `/v1/transcription/jobs/{job_id}` [DELETE]
+#### `/v1/transcribe/jobs/{job_id}` [DELETE]
 **Purpose**: Cancel pending/processing job
 ```python
 Response:
