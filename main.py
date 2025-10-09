@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager
 from services.asr_service import NeMoASRService
 from services.audio_utils import AudioProcessor
 from services.batch_processor import BatchProcessor, BatchConfig
-from config import get_settings
+from config import get_settings, get_intelligence_settings
 from api.routers import all_routers
+from intelligence.intelligence_service import start_intelligence_service, stop_intelligence_service
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
 
@@ -65,14 +66,31 @@ async def lifespan(app: FastAPI):
     
     # Start batch processor
     await app.state.batch_processor.start()
-    
+
+    # Initialize intelligence service if enabled
+    intelligence_settings = get_intelligence_settings()
+    if intelligence_settings.enabled:
+        try:
+            await start_intelligence_service()
+            logger.info("Intelligence service started successfully")
+        except Exception as e:
+            logger.warning(f"Failed to start intelligence service: {e}")
+            logger.info("Continuing without intelligence service")
+
     logger.info("ASR microservice initialized successfully")
     
     yield
     
     # Shutdown
     logger.info("Shutting down ASR microservice...")
-    
+
+    # Stop intelligence service
+    try:
+        await stop_intelligence_service()
+        logger.info("Intelligence service stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping intelligence service: {e}")
+
     if app.state.batch_processor:
         await app.state.batch_processor.stop()
     

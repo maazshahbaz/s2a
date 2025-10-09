@@ -6,7 +6,7 @@ A high-performance ASR (Automatic Speech Recognition) microservice built with NV
 
 ### Core ASR Capabilities
 - **NVIDIA NeMo Parakeet Integration**: Utilizes `nvidia/parakeet-tdt-0.6b-v2` model for state-of-the-art transcription accuracy
-- **Long Audio Support**: Handles audio files from 5 seconds up to 5+ hours with intelligent chunking
+- **Long Audio Support**: Handles audio files from 5 seconds up to 2 hours with intelligent chunking
 - **24-minute Chunk Processing**: Optimal chunk size for maximum GPU utilization
 - **Intelligent Audio Stitching**: Seamless reconstruction of long audio transcriptions
 
@@ -25,7 +25,7 @@ A high-performance ASR (Automatic Speech Recognition) microservice built with NV
 ### API & Integration
 - **FastAPI REST API**: Production-ready async endpoints
 - **Bearer Token Authentication**: OpenAI-style API key authentication with rate limiting
-- **Sync & Async Processing**: Choose based on latency requirements
+- **Sync & Async Processing**: Sync API (≤2 minutes), Async API (≤2 hours)
 - **Webhook Support**: Callback URLs for async results
 - **Prometheus Metrics**: Comprehensive performance monitoring
 - **Docker Deployment**: GPU-optimized containerization
@@ -230,6 +230,9 @@ curl -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
 ```
 
 ### Synchronous Transcription
+**Duration Limit**: Maximum 2 minutes
+**Response**: Immediate transcription result
+
 ```bash
 curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
   -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
@@ -239,6 +242,8 @@ curl -X POST "https://bytepulseai.com/v1/transcription/transcribe" \
 ```
 
 ### Asynchronous Transcription
+**Duration Limit**: Maximum 2 hours
+**Response**: Job ID with webhook callback when complete
 ```bash
 # Submit job
 curl -X POST "https://bytepulseai.com/v1/transcription/transcribe/async" \
@@ -366,7 +371,7 @@ Format Check   Noise Filter  Boundaries   Memory Mgmt   Inference   Text Join   
 ### Scalability
 - **Max Concurrent Jobs**: 100+
 - **Queue Throughput**: 1000+ jobs/hour
-- **Long Audio Support**: Tested up to 5 hours
+- **Long Audio Support**: Tested up to 2 hours (async API limit)
 - **Batch Efficiency**: 90%+ GPU utilization
 
 ## Monitoring
