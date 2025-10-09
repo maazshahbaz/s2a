@@ -62,18 +62,14 @@ async def transcribe_async(
 
          # Check minimum duration (both sync/async same rule)
         if audio_info['duration'] < asr_svc.min_audio_duration:
-            await transcription_svc.update_job_status(job_id, 'rejected', 
-                                                    error_message="Audio too short. Minimum duration is 1 second.")
-            await delete_audio_file(audio_path)
-            return TranscribeAsyncResponse(job_id=job_id, status="rejected", reason="Audio too short. Minimum duration is 1 second.")
+            raise HTTPException(status_code=400, detail="Audio too short. Minimum duration is 1 second.")
+        
         
         # Check maximum duration for SYNC API (2 minutes max)
         settings = get_settings()
         if audio_info['duration'] > settings.max_audio_duration:
             error_msg = f"Audio too long for sync API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
-            await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
-            await delete_audio_file(audio_path)
-            return TranscribeAsyncResponse(job_id=job_id, status="rejected", reason=error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
         
         # Create job record in database
         job = await transcription_svc.create_job(
@@ -96,7 +92,13 @@ async def transcribe_async(
         )
         
         return TranscribeAsyncResponse(job_id=job_id, status="accepted")
-        
+    except HTTPException:
+        try:
+            if os.path.exists(audio_path):
+                await delete_audio_file(audio_path)
+        except Exception as cleanup_err:
+            logger.warning(f"Failed to clean up audio file {audio_path}: {cleanup_err}")
+        raise    
     except Exception as e:
         logger.error(f"Error setting up async job {job_id}: {e}")
         # Update job status to failed if it was created

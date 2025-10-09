@@ -34,7 +34,6 @@ class TranscriptionResponse(BaseModel):
 class TranscribeAsyncResponse(BaseModel):
     job_id: str
     status: str
-    reason: Optional[str] = None
 
 class StatusResponse(BaseModel):
     job_id: str

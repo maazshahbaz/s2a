@@ -226,7 +226,7 @@ All API endpoints (except `/v1/statistics/health`) require Bearer token authenti
 
 ```bash
 curl -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
-     https://bytepulseai.com/v1/transcription/transcribe
+     https://bytepulseai.com/v1/transcribe
 ```
 ### Asynchronous Transcription
 **Duration Limit**: Minimum 1 sec and Maximum 5 hours

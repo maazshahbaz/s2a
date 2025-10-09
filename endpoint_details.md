@@ -44,8 +44,7 @@ Request:
 Response:
 {
   "job_id": "uuid",
-  "status": "accepted",
-  "reason (Optional)": ""
+  "status": "accepted"
 }
 ```
 
