@@ -19,6 +19,9 @@ class WebhookPayload:
     error: Optional[str] = None
     timestamp: float = None
     processing_time: Optional[float] = None
+    # Intelligence-specific fields
+    intelligence_type: Optional[str] = None  # "quick", "enhanced", "transcription"
+    intelligence_data: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -75,7 +78,14 @@ class WebhookSender:
             "timestamp": payload.timestamp,
             "processing_time": payload.processing_time
         }
-        
+
+        # Add intelligence fields if present
+        if payload.intelligence_type:
+            webhook_data["intelligence_type"] = payload.intelligence_type
+
+        if payload.intelligence_data:
+            webhook_data["intelligence"] = payload.intelligence_data
+
         if payload.result:
             webhook_data["result"] = payload.result
             

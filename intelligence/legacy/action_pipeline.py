@@ -68,6 +68,17 @@ class UnifiedPayload(BaseModel):
     confidence_score: float = Field(0.8, description="Overall extraction confidence", ge=0, le=1)
 
 
+class QuickIntelligence(BaseModel):
+    """Lightweight intelligence for immediate response (1-2 seconds)"""
+    summary: str = Field(..., description="Brief 1-2 sentence summary")
+    intent: Intent = Field(Intent.GENERAL_DISCUSSION, description="Primary conversation type")
+    sentiment: Sentiment = Field(Sentiment.NEUTRAL, description="Overall sentiment")
+    action_items: List[ActionItem] = Field(default_factory=list, description="Top 3 action items only")
+    key_entities: List[str] = Field(default_factory=list, description="Important names, companies, products (max 5)")
+    confidence_score: float = Field(0.8, description="Extraction confidence", ge=0, le=1)
+    processing_time: float = Field(0.0, description="Processing time in seconds")
+
+
 class ExtractionMetrics(BaseModel):
     total_requests: int = 0
     successful_extractions: int = 0
@@ -276,6 +287,88 @@ class ActionPipelineExtractor:
         # Update JSON pass rate
         if self.metrics.total_requests > 0:
             self.metrics.json_pass_rate = self.metrics.successful_extractions / self.metrics.total_requests
+
+    def extract_quick(self, transcript: str) -> Dict[str, Any]:
+        """Quick extraction for immediate response (target: <2 seconds)"""
+        start_time = time.time()
+        self.metrics.total_requests += 1
+
+        try:
+            # Truncate long transcripts for speed
+            if len(transcript) > 1500:
+                transcript = transcript[:1500] + "..."
+
+            # Build quick prompt - minimal processing
+            quick_prompt = "Extract ONLY: summary (1-2 sentences), intent, sentiment, top 3 action items, key entities (max 5). Be fast and concise."
+
+            messages = [
+                {"role": "system", "content": f"{quick_prompt}\n\nSchema: {json.dumps(QuickIntelligence.model_json_schema(), separators=(',', ':'))}"},
+                {"role": "user", "content": f"Transcript:\n{transcript}"}
+            ]
+
+            # Call API with speed-optimized parameters
+            response = self._call_api_quick(messages)
+
+            try:
+                # Validate with QuickIntelligence schema
+                quick_intel = QuickIntelligence.model_validate(response)
+                quick_intel.processing_time = time.time() - start_time
+
+                result = {
+                    "success": True,
+                    "data": quick_intel.model_dump(),
+                    "latency": quick_intel.processing_time,
+                    "mode": "quick"
+                }
+
+                self.metrics.successful_extractions += 1
+
+            except ValidationError as e:
+                # Return basic fallback on validation failure
+                result = {
+                    "success": False,
+                    "data": response if isinstance(response, dict) else {},
+                    "error": f"Quick validation error: {str(e)}",
+                    "latency": time.time() - start_time,
+                    "mode": "quick"
+                }
+                self.metrics.failed_extractions += 1
+
+        except Exception as e:
+            result = {
+                "success": False,
+                "data": {},
+                "error": f"Quick extraction error: {str(e)}",
+                "latency": time.time() - start_time,
+                "mode": "quick"
+            }
+            self.metrics.failed_extractions += 1
+
+        # Update latency metrics
+        self._update_latency_metrics(result["latency"])
+        return result
+
+    def _call_api_quick(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Optimized API call for quick extraction"""
+        payload = {
+            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "messages": messages,
+            "temperature": 0.1,  # Lower for faster inference
+            "top_p": 0.8,
+            "max_tokens": 250,  # Reduced for speed
+            "response_format": {"type": "json_object"}
+        }
+
+        response = self.client.post(
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        response.raise_for_status()
+
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        return json.loads(content)
 
     def get_metrics(self) -> Dict[str, Any]:
         """Get current performance metrics"""
