@@ -1,0 +1,48 @@
+# Docker Compose configuration with Redis (Required)
+# Redis is now required for the chunk queue system
+
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: s2a-redis
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - s2a-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  s2a-api:
+    environment:
+      # Redis connection (required)
+      - S2A_REDIS_HOST=redis
+      - S2A_REDIS_PORT=6379
+      - S2A_REDIS_DB=0
+
+      # Performance settings
+      - S2A_REDIS_BATCH_SIZE=128  # Batch 128 chunks from different jobs for RTFx 3300
+      - S2A_REDIS_NUM_WORKERS=4    # 4 concurrent workers
+      - S2A_REDIS_AUDIO_CACHE_SIZE=10  # Cache 10 audio files in memory
+
+    depends_on:
+      - db
+      - redis
+    networks:
+      - s2a-network
+
+networks:
+  s2a-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

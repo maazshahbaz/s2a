@@ -1,407 +1,335 @@
+"""
+Redis-based batch processor with chunk queue architecture.
+Maximizes GPU utilization by batching chunks from multiple jobs.
+"""
+
 import asyncio
-import torch
+import redis.asyncio as redis
 import numpy as np
-from typing import List, Dict, Any, Optional, Callable
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from dataclasses import dataclass, field
+import librosa
+import soundfile as sf
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
 from pathlib import Path
-import time
 from loguru import logger
-from collections import deque
-import threading
-from enum import Enum
-from .chunking_utils import AudioChunk
+from concurrent.futures import ThreadPoolExecutor
 
-class BatchStatus(Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+from .chunk_metadata import ChunkMetadata, ChunkResult, JobMetadata
+from .redis_queue_manager import RedisQueueManager
+from .chunk_generator import ChunkGenerator
+from .chunk_worker import ChunkWorker, AudioCache
+from .stitching_service import StitchingService
+
 
 @dataclass
-class BatchJob:
-    job_id: str
-    audio_data: np.ndarray
-    metadata: Dict = field(default_factory=dict)
-    priority: int = 0
-    created_at: float = field(default_factory=time.time)
-    status: BatchStatus = BatchStatus.PENDING
-    result: Optional[Dict] = None
-    error: Optional[str] = None
-    # Add chunking support
-    audio_chunks: Optional[List[AudioChunk]] = None
-    stitch_function: Optional[Callable] = None
-    is_chunked: bool = False
+class BatchProcessorConfig:
+    """Configuration for batch processor"""
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: Optional[str] = None
 
-@dataclass
-class BatchConfig:
-    max_batch_size: int = 128  # Increased for higher throughput
-    max_queue_size: int = 500  # Increased for higher throughput
-    processing_timeout: float = 300.0  # 5 minutes
-    dynamic_batching: bool = True
-    batch_timeout_ms: int = 100
-    gpu_memory_fraction: float = 0.8
-    enable_mixed_precision: bool = True
+    batch_size: int = 128  # Maximum chunks per batch
+    num_workers: int = 1  # 1 worker is sufficient with batch_size=128 (processes 3000+ min/min)
+    max_chunk_duration: float = 1440.0  # 24 minutes (Parakeet limit)
+    overlap_duration: float = 5.0  # 5 seconds overlap
 
-class GPUMemoryManager:
-    def __init__(self, target_utilization: float = 0.8):
-        self.target_utilization = target_utilization
-        self._lock = threading.Lock()
-        
-    def get_available_memory(self) -> float:
-        if not torch.cuda.is_available():
-            return 0.0
-        
-        with self._lock:
-            torch.cuda.empty_cache()
-            total_memory = torch.cuda.get_device_properties(0).total_memory
-            allocated_memory = torch.cuda.memory_allocated(0)
-            available = (total_memory - allocated_memory) / total_memory
-            
-        return available
-    
-    def can_process_batch(self, batch_size: int, estimated_memory_per_item: float = 0.1) -> bool:
-        available = self.get_available_memory()
-        required = batch_size * estimated_memory_per_item
-        
-        return available >= required
-    
-    def optimize_batch_size(self, requested_size: int, max_size: int) -> int:
-        if not torch.cuda.is_available():
-            return min(requested_size, max_size)
-        
-        available_memory = self.get_available_memory()
-        
-        # Estimate memory usage per item (rough approximation)
-        memory_per_item = 0.1  # 10% of GPU memory per item (conservative)
-        
-        max_items_by_memory = int(available_memory * self.target_utilization / memory_per_item)
-        optimal_size = min(requested_size, max_size, max_items_by_memory)
-        
-        return max(1, optimal_size)
+    audio_cache_size: int = 10  # Number of audio files to cache
+    worker_executor_threads: int = 4  # Threads per worker
 
-class DynamicBatcher:
-    def __init__(self, config: BatchConfig):
-        self.config = config
-        self.job_queue = asyncio.Queue(maxsize=config.max_queue_size)
-        self.result_store: Dict[str, BatchJob] = {}
-        self.processing_jobs: Dict[str, BatchJob] = {}
-        self.gpu_manager = GPUMemoryManager(config.gpu_memory_fraction)
-        self._stats = {
-            'jobs_processed': 0,
-            'total_processing_time': 0.0,
-            'average_batch_size': 0.0,
-            'gpu_utilization': 0.0
-        }
-        self._lock = asyncio.Lock()
-        
-    async def add_job(self, job: BatchJob) -> None:
-        try:
-            await asyncio.wait_for(
-                self.job_queue.put(job), 
-                timeout=1.0
-            )
-            logger.debug(f"Added job {job.job_id} to queue")
-        except asyncio.TimeoutError:
-            raise RuntimeError("Batch queue is full")
-    
-    async def get_result(self, job_id: str, timeout: float = 30.0) -> Optional[BatchJob]:
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            async with self._lock:
-                if job_id in self.result_store:
-                    return self.result_store.pop(job_id)
-                
-                if job_id in self.processing_jobs:
-                    job = self.processing_jobs[job_id]
-                    if job.status in [BatchStatus.COMPLETED, BatchStatus.FAILED]:
-                        self.processing_jobs.pop(job_id)
-                        return job
-            
-            await asyncio.sleep(0.1)
-        
-        return None
-    
-    def create_optimal_batches(self, jobs: List[BatchJob]) -> List[List[BatchJob]]:
-        if not jobs:
-            return []
-        
-        # Sort by priority and creation time
-        jobs.sort(key=lambda x: (-x.priority, x.created_at))
-        
-        batches = []
-        current_batch = []
-        
-        for job in jobs:
-            # Check if adding this job would exceed limits
-            if (len(current_batch) >= self.config.max_batch_size or
-                (current_batch and not self._can_batch_together(current_batch[0], job))):
-                
-                if current_batch:
-                    batches.append(current_batch)
-                    current_batch = []
-            
-            current_batch.append(job)
-        
-        if current_batch:
-            batches.append(current_batch)
-        
-        return batches
-    
-    def _can_batch_together(self, job1: BatchJob, job2: BatchJob) -> bool:
-        # Check if jobs can be batched together based on audio characteristics
-        audio1_duration = len(job1.audio_data) / job1.metadata.get('sample_rate', 16000)
-        audio2_duration = len(job2.audio_data) / job2.metadata.get('sample_rate', 16000)
-        
-        # Separate long audios (>24min) from short audios for optimal processing
-        is_long_1 = audio1_duration > 24 * 60
-        is_long_2 = audio2_duration > 24 * 60
-        
-        # Don't batch long audios together (they need individual chunking)
-        if is_long_1 or is_long_2:
-            return False
-        
-        # For short audios, don't batch if duration difference is too large
-        max_duration = max(audio1_duration, audio2_duration)
-        min_duration = min(audio1_duration, audio2_duration)
-        
-        if max_duration / min_duration > 3.0:  # Max 3x duration difference
-            return False
-        
-        return True
-    
-    async def collect_batch(self, timeout_ms: int = 100) -> List[BatchJob]:
-        """Collect exactly one job per worker for optimal parallelism"""
-        try:
-            job = await asyncio.wait_for(
-                self.job_queue.get(), 
-                timeout=timeout_ms / 1000.0
-            )
-            return [job]  # Return single job for 1-job-per-worker approach
-        except asyncio.TimeoutError:
-            return []  # No job available
-    
-    def get_stats(self) -> Dict[str, Any]:
-        return {
-            **self._stats,
-            'queue_size': self.job_queue.qsize(),
-            'processing_jobs': len(self.processing_jobs),
-            'gpu_memory_available': self.gpu_manager.get_available_memory()
-        }
 
 class BatchProcessor:
-    def __init__(self, 
-                 asr_service,
-                 config: BatchConfig = None,
-                 num_workers: int = 8):  # Increased for higher throughput
-        
+    """
+    Redis-based batch processor with chunk queue.
+
+    Architecture:
+    1. Audio files stored once on disk
+    2. Chunks are metadata only (no physical files)
+    3. Workers pull chunks from Redis queue
+    4. Chunks from different jobs batched together
+    5. GPU processes mixed batches for maximum efficiency
+    6. Automatic stitching when job completes
+    """
+
+    def __init__(
+        self,
+        asr_service,
+        config: BatchProcessorConfig = None
+    ):
         self.asr_service = asr_service
-        self.config = config or BatchConfig()
-        self.num_workers = num_workers
-        self.batcher = DynamicBatcher(self.config)
-        self.executor = ThreadPoolExecutor(max_workers=num_workers)
+        self.config = config or BatchProcessorConfig()
+
+        # Redis connection
+        self.redis_client = None
+        self.redis_queue = None
+
+        # Workers
+        self.workers: List[ChunkWorker] = []
+        self.worker_tasks: List[asyncio.Task] = []
+
+        # Shared resources
+        self.audio_cache = AudioCache(max_cache_size=self.config.audio_cache_size)
+        self.executor = ThreadPoolExecutor(max_workers=self.config.worker_executor_threads)
+
         self._running = False
-        self._worker_tasks = []
-        
+
     async def start(self):
+        """Start the batch processor"""
         if self._running:
+            logger.warning("Batch processor already running")
             return
-        
-        self._running = True
-        logger.info(f"Starting batch processor with {self.num_workers} workers")
-        
-        # Start worker tasks
-        for i in range(self.num_workers):
-            task = asyncio.create_task(self._worker_loop(f"worker-{i}"))
-            self._worker_tasks.append(task)
-    
-    async def stop(self):
-        self._running = False
-        
-        # Cancel worker tasks
-        for task in self._worker_tasks:
-            task.cancel()
-        
-        # Wait for tasks to complete
-        if self._worker_tasks:
-            await asyncio.gather(*self._worker_tasks, return_exceptions=True)
-        
-        self.executor.shutdown(wait=True)
-        logger.info("Batch processor stopped")
-    
-    async def _worker_loop(self, worker_name: str):
-        logger.info(f"Worker {worker_name} started")
-        
-        while self._running:
-            try:
-                # Collect exactly one job per worker
-                jobs = await self.batcher.collect_batch(self.config.batch_timeout_ms)
-                
-                if not jobs:
-                    await asyncio.sleep(0.01)
-                    continue
-                
-                # Process the single job (no batching optimization needed)
-                await self._process_batch(jobs, worker_name)
-                
-            except asyncio.CancelledError:
-                logger.info(f"Worker {worker_name} cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Error in worker {worker_name}: {e}")
-                await asyncio.sleep(1.0)
-    
-    async def _process_batch(self, jobs: List[BatchJob], worker_name: str):
-        if not jobs:
-            return
-        
-        # Should only be 1 job per call now
-        job = jobs[0]
-        job_start_time = time.time()
-        
-        logger.info(f"Worker {worker_name} processing job {job.job_id}")
-        
-        # Mark job as processing
-        async with self.batcher._lock:
-            job.status = BatchStatus.PROCESSING
-            self.batcher.processing_jobs[job.job_id] = job
-        
-        try:
-            # Check if audio needs chunking (>24 minutes)
-            sr = job.metadata.get('sample_rate', 16000)
-            duration = len(job.audio_data) / sr
-            
-            if duration > 24 * 60:  # 24 minutes
-                logger.info(f"Job {job.job_id}: Long audio ({duration/60:.1f}min), using intelligent chunking")
-                
-                # Use ASR service's intelligent chunking
-                audio_chunks, stitch_function = await asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    self.asr_service.chunk_audio_intelligent,
-                    job.audio_data, sr
-                )
-                
-                # Process chunks
-                chunk_results = await asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    self.asr_service.transcribe_batch_nemo,
-                    audio_chunks
-                )
-                
-                # Stitch transcriptions using intelligent stitching
-                final_result = await asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    stitch_function,
-                    chunk_results
-                )
-                
-                processing_time = time.time() - job_start_time
-                rtf = processing_time / duration if duration > 0 else float('inf')
-                
-                job.result = {
-                    'text': final_result.get('text', ''),
-                    'duration': duration,
-                    'rtf': rtf,
-                    'processing_time': processing_time,
-                    'chunks_processed': final_result.get('chunks_processed', len(audio_chunks)),
-                    'confidence': final_result.get('confidence')
-                }
-                job.is_chunked = True
-                
-            else:
-                logger.info(f"Job {job.job_id}: Short audio ({duration/60:.1f}min), single chunk processing")
-                
-                # Process as single audio chunk
-                results = await asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    self.asr_service.transcribe_batch_nemo,
-                    [AudioChunk(
-                        audio_data=job.audio_data,
-                        start_time=0,
-                        end_time=duration,
-                        duration=duration,
-                        chunk_id=0
-                    )]
-                )
-                
-                if results:
-                    processing_time = time.time() - job_start_time
-                    rtf = processing_time / duration if duration > 0 else float('inf')
-                    
-                    job.result = {
-                        'text': results[0].get('text', ''),
-                        'duration': duration,
-                        'rtf': rtf,
-                        'processing_time': processing_time,
-                        'chunks_processed': 1,
-                        'confidence': results[0].get('confidence')
-                    }
-                else:
-                    job.result = {'text': '', 'duration': duration, 'rtf': float('inf')}
-                    
-                job.is_chunked = False
-            
-            job.status = BatchStatus.COMPLETED if job.result.get('text') else BatchStatus.FAILED
-            if not job.result.get('text'):
-                job.error = "No transcription generated"
-                
-            logger.info(f"Job {job.job_id} completed: {duration:.1f}s audio, "
-                       f"RTF: {job.result.get('rtf', 0):.3f}, "
-                       f"chunks: {job.result.get('chunks_processed', 1)}")
-                
-        except Exception as job_error:
-            logger.error(f"Error processing job {job.job_id}: {job_error}")
-            job.status = BatchStatus.FAILED
-            job.error = str(job_error)
-            job.result = {'text': '', 'duration': 0, 'rtf': float('inf')}
-        
-        # Move completed job to result store
-        async with self.batcher._lock:
-            self.batcher.result_store[job.job_id] = job
-            if job.job_id in self.batcher.processing_jobs:
-                del self.batcher.processing_jobs[job.job_id]
-        
-        # Update stats
-        processing_time = time.time() - job_start_time
-        self.batcher._stats['jobs_processed'] += 1
-        self.batcher._stats['total_processing_time'] += processing_time
-        self.batcher._stats['average_batch_size'] = 1.0  # Always 1 job per worker now
-    
-    async def transcribe_async(self, 
-                             job_id: str,
-                             audio_data: np.ndarray,
-                             metadata: Dict = None,
-                             priority: int = 0,
-                             timeout: float = 300.0) -> Optional[Dict]:
-        
-        job = BatchJob(
-            job_id=job_id,
-            audio_data=audio_data,
-            metadata=metadata or {},
-            priority=priority
+
+        logger.info("Starting new batch processor")
+
+        # Connect to Redis
+        self.redis_client = await redis.Redis(
+            host=self.config.redis_host,
+            port=self.config.redis_port,
+            db=self.config.redis_db,
+            password=self.config.redis_password,
+            decode_responses=False  # We'll handle encoding/decoding
         )
-        
+
+        # Test connection
+        await self.redis_client.ping()
+        logger.info(f"Connected to Redis at {self.config.redis_host}:{self.config.redis_port}")
+
+        # Create queue manager
+        self.redis_queue = RedisQueueManager(self.redis_client)
+
+        # Start workers
+        for i in range(self.config.num_workers):
+            worker = ChunkWorker(
+                worker_id=f"worker_{i}",
+                asr_service=self.asr_service,
+                redis_queue=self.redis_queue,
+                batch_size=self.config.batch_size,
+                audio_cache=self.audio_cache,
+                executor=self.executor
+            )
+            self.workers.append(worker)
+
+            # Start worker task
+            task = asyncio.create_task(worker.start())
+            self.worker_tasks.append(task)
+
+        self._running = True
+        logger.info(f"Started {self.config.num_workers} workers with batch_size={self.config.batch_size}")
+
+    async def stop(self):
+        """Stop the batch processor"""
+        if not self._running:
+            return
+
+        logger.info("Stopping batch processor")
+
+        # Stop workers
+        for worker in self.workers:
+            await worker.stop()
+
+        # Cancel worker tasks
+        for task in self.worker_tasks:
+            task.cancel()
+
+        # Wait for tasks to complete
+        if self.worker_tasks:
+            await asyncio.gather(*self.worker_tasks, return_exceptions=True)
+
+        # Clear caches
+        await self.audio_cache.clear()
+
+        # Close Redis connection
+        if self.redis_client:
+            await self.redis_client.close()
+
+        # Shutdown executor
+        self.executor.shutdown(wait=True)
+
+        self._running = False
+        logger.info("Batch processor stopped")
+
+    async def submit_job(
+        self,
+        job_id: str,
+        audio_path: str,
+        callback_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Submit an audio file for processing.
+
+        Args:
+            job_id: Unique job identifier
+            audio_path: Path to audio file (stored once)
+            callback_url: Webhook URL for completion notification
+
+        Returns:
+            Job submission result
+        """
+        if not self._running:
+            raise RuntimeError("Batch processor not running")
+
         try:
-            # Add job to queue
-            await self.batcher.add_job(job)
-            
-            # Wait for result
-            result_job = await self.batcher.get_result(job_id, timeout)
-            
-            if result_job is None:
-                logger.warning(f"Job {job_id} timed out")
-                return None
-            
-            if result_job.status == BatchStatus.FAILED:
-                logger.error(f"Job {job_id} failed: {result_job.error}")
-                return None
-            
-            return result_job.result
-            
+            # Get audio duration
+            duration = await self._get_audio_duration(audio_path)
+            logger.info(f"Job {job_id}: Audio duration {duration:.1f}s")
+
+            # Generate chunk metadata (no physical files)
+            chunks = ChunkGenerator.generate_chunks(
+                job_id=job_id,
+                audio_path=audio_path,
+                audio_duration=duration,
+                sample_rate=16000,  # Will be verified when loading
+                max_chunk_duration=self.config.max_chunk_duration,
+                overlap_duration=self.config.overlap_duration,
+                callback_url=callback_url
+            )
+
+            # Enqueue chunks to Redis
+            await self.redis_queue.enqueue_chunks(chunks)
+
+            # Estimate processing time
+            estimated_time = ChunkGenerator.estimate_processing_time(chunks)
+
+            return {
+                'job_id': job_id,
+                'status': 'queued',
+                'audio_duration': duration,
+                'num_chunks': len(chunks),
+                'estimated_processing_time': estimated_time
+            }
+
         except Exception as e:
-            logger.error(f"Error processing job {job_id}: {e}")
+            logger.error(f"Failed to submit job {job_id}: {e}")
+            raise
+
+    async def _get_audio_duration(self, audio_path: str) -> float:
+        """Get audio duration using librosa"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self._get_audio_duration_sync,
+            audio_path
+        )
+
+    def _get_audio_duration_sync(self, audio_path: str) -> float:
+        """Get audio duration (synchronous)"""
+        try:
+            # Try librosa first (faster for getting duration)
+            duration = librosa.get_duration(path=audio_path)
+            return duration
+        except Exception as e:
+            # Fallback to soundfile
+            audio, sr = sf.read(audio_path)
+            return len(audio) / sr
+
+    async def get_job_status(self, job_id: str) -> Dict[str, Any]:
+        """Get status of a job"""
+        if not self.redis_queue:
+            raise RuntimeError("Batch processor not initialized")
+
+        # Get job metadata from Redis
+        job_key = self.redis_queue.job_status_key(job_id)
+        job_data = await self.redis_client.hgetall(job_key)
+
+        if not job_data:
+            return {'job_id': job_id, 'status': 'not_found'}
+
+        # Decode and parse
+        job_info = {
+            k.decode() if isinstance(k, bytes) else k:
+            v.decode() if isinstance(v, bytes) else v
+            for k, v in job_data.items()
+        }
+
+        # Get completion stats
+        completed_count = await self.redis_client.scard(
+            self.redis_queue.completed_set(job_id)
+        )
+
+        return {
+            'job_id': job_id,
+            'status': job_info.get('status', 'unknown'),
+            'total_chunks': int(job_info.get('total_chunks', 0)),
+            'completed_chunks': completed_count,
+            'audio_path': job_info.get('audio_path'),
+            'created_at': float(job_info.get('created_at', 0))
+        }
+
+    async def get_job_result(self, job_id: str) -> Optional[str]:
+        """
+        Get final transcription result for a completed job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            Final stitched transcription or None if not ready
+        """
+        if not self.redis_queue:
+            raise RuntimeError("Batch processor not initialized")
+
+        # Check job status
+        status = await self.get_job_status(job_id)
+
+        if status['status'] != 'completed':
             return None
-    
-    def get_stats(self) -> Dict[str, Any]:
-        return self.batcher.get_stats()
+
+        # Get all chunk results
+        chunk_results = await self.redis_queue.get_job_results(job_id)
+
+        if not chunk_results:
+            return None
+
+        # Stitch results
+        stitching_service = StitchingService()
+        final_text = await stitching_service.stitch_transcriptions(
+            chunk_results,
+            remove_overlap=True
+        )
+
+        return final_text
+
+    async def get_queue_stats(self) -> Dict[str, Any]:
+        """Get queue statistics"""
+        if not self.redis_queue:
+            return {}
+
+        stats = await self.redis_queue.get_queue_stats()
+
+        # Add worker stats
+        worker_stats = []
+        for worker in self.workers:
+            worker_stats.append({
+                'worker_id': worker.worker_id,
+                **worker.get_stats()
+            })
+
+        stats['workers'] = worker_stats
+        stats['batch_size'] = self.config.batch_size
+        stats['num_workers'] = self.config.num_workers
+
+        return stats
+
+
+# Compatibility wrapper for existing code
+async def create_batch_processor(asr_service, config_dict: Optional[Dict] = None):
+    """
+    Create and start a batch processor.
+
+    Args:
+        asr_service: ASR service instance
+        config_dict: Optional configuration dictionary
+
+    Returns:
+        Started batch processor instance
+    """
+    # Convert dict to config object
+    if config_dict:
+        config = BatchProcessorConfig(**config_dict)
+    else:
+        config = BatchProcessorConfig()
+
+    processor = BatchProcessor(asr_service, config)
+    await processor.start()
+
+    return processor

@@ -7,8 +7,8 @@ import time
 from contextlib import asynccontextmanager
 from services.asr_service import NeMoASRService
 from services.audio_utils import AudioProcessor
-from services.batch_processor import BatchProcessor, BatchConfig
-from config import get_settings, get_intelligence_settings
+from services.batch_processor import BatchProcessor, BatchProcessorConfig
+from config import get_settings, get_intelligence_settings, get_redis_settings
 from api.routers import all_routers
 from intelligence.intelligence_service import start_intelligence_service, stop_intelligence_service
 from generated.prisma import Prisma
@@ -49,19 +49,23 @@ async def lifespan(app: FastAPI):
         vad_aggressiveness=settings.vad_aggressiveness
     )
     
-    batch_config = BatchConfig(
-        max_batch_size=settings.batch_size,
-        max_queue_size=settings.max_queue_size,
-        processing_timeout=settings.processing_timeout,
-        dynamic_batching=settings.dynamic_batching,
-        batch_timeout_ms=settings.batch_timeout_ms,
-        gpu_memory_fraction=settings.gpu_memory_fraction
+    # Initialize Redis-based batch processor
+    redis_settings = get_redis_settings()
+    batch_config = BatchProcessorConfig(
+        redis_host=redis_settings.host,
+        redis_port=redis_settings.port,
+        redis_db=redis_settings.db,
+        redis_password=redis_settings.password,
+        batch_size=redis_settings.batch_size,
+        num_workers=redis_settings.num_workers,
+        max_chunk_duration=settings.max_chunk_duration,
+        overlap_duration=settings.overlap_duration,
+        audio_cache_size=redis_settings.audio_cache_size
     )
-    
+
     app.state.batch_processor = BatchProcessor(
         asr_service=app.state.asr_service,
-        config=batch_config,
-        num_workers=settings.num_workers
+        config=batch_config
     )
     
     # Start batch processor

@@ -8,21 +8,12 @@ class ASRConfig(BaseSettings):
     model_name: str = Field(default="nvidia/parakeet-tdt-0.6b-v2", description="HuggingFace model name")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to use")
     
-    # Processing parameters
-    batch_size: int = Field(default=4, description="Batch size for processing")
-    max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds")
+    # ASR Model parameters
+    max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds (24 min for Parakeet)")
     min_audio_duration: float = Field(default=1.0, description="Minimum audio duration to process")
-    max_sync_audio_duration: float = Field(default=2 * 60, description="Maximum audio duration for API (2 minutes)")
-    max_async_audio_duration: float = Field(default=2 * 60 * 60, description="Maximum audio duration for async API (2 hours)")
-    max_audio_duration: float = Field(default=5 * 60 * 60, description="Maximum audio duration for async API (5 hours)")
+    max_audio_duration: float = Field(default=5 * 60 * 60, description="Maximum audio duration (5 hours)")
     target_sample_rate: int = Field(default=16000, description="Target sample rate for audio")
-    
-    # Batch processing
-    max_queue_size: int = Field(default=100, description="Maximum queue size for batch processing")
-    processing_timeout: float = Field(default=300.0, description="Processing timeout in seconds")
-    dynamic_batching: bool = Field(default=True, description="Enable dynamic batching")
-    batch_timeout_ms: int = Field(default=100, description="Batch collection timeout in milliseconds")
-    num_workers: int = Field(default=2, description="Number of worker processes")
+    overlap_duration: float = Field(default=5.0, description="Overlap between chunks in seconds")
     
     # GPU optimization
     gpu_memory_fraction: float = Field(default=0.8, description="Fraction of GPU memory to use")
@@ -46,6 +37,32 @@ class ASRConfig(BaseSettings):
         "case_sensitive": False,
         "extra": "ignore"  # Allow extra fields in .env
     }
+
+# Redis configuration for chunk queue system (Required)
+class RedisConfig(BaseSettings):
+    # Redis connection (required)
+    host: str = Field(default="localhost", description="Redis host")
+    port: int = Field(default=6379, description="Redis port")
+    db: int = Field(default=0, description="Redis database number")
+    password: Optional[str] = Field(default=None, description="Redis password")
+
+    # Queue configuration
+    queue_prefix: str = Field(default="stt", description="Prefix for Redis keys")
+    chunk_ttl: int = Field(default=86400, description="TTL for chunk data in seconds (24 hours)")
+
+    # Batch processing configuration
+    batch_size: int = Field(default=128, description="Max chunks per GPU batch (can mix jobs)")
+    num_workers: int = Field(default=1, description="Number of concurrent workers (1 is sufficient with batch_size=128)")
+
+    # Audio caching
+    audio_cache_size: int = Field(default=10, description="Number of audio files to cache in memory")
+
+    model_config = {
+        "env_prefix": "S2A_REDIS_",
+        "case_sensitive": False,
+        "extra": "ignore"
+    }
+
 # Performance monitoring configuration
 class PerformanceConfig(BaseSettings):
     enable_metrics: bool = Field(default=True, description="Enable performance metrics collection")
@@ -138,6 +155,7 @@ class IntelligenceMetricsConfig(BaseSettings):
     
 # Global settings instances
 _settings = None
+_redis_settings = None
 _intelligence_settings = None
 _intelligence_metrics_settings = None
 
@@ -146,6 +164,12 @@ def get_settings() -> ASRConfig:
     if _settings is None:
         _settings = ASRConfig()
     return _settings
+
+def get_redis_settings() -> RedisConfig:
+    global _redis_settings
+    if _redis_settings is None:
+        _redis_settings = RedisConfig()
+    return _redis_settings
 
 def get_intelligence_settings() -> IntelligenceConfig:
     global _intelligence_settings
