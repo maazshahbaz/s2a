@@ -7,7 +7,7 @@ class ASRConfig(BaseSettings):
     # Model configuration
     model_name: str = Field(default="nvidia/parakeet-tdt-0.6b-v2", description="HuggingFace model name")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to use")
-    
+    batch_size: int = Field(default=4, description="Batch size")
     # ASR Model parameters
     max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds (24 min for Parakeet)")
     min_audio_duration: float = Field(default=1.0, description="Minimum audio duration to process")

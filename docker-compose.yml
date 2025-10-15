@@ -12,32 +12,32 @@ services:
       - s2a-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # PostgreSQL Database (REQUIRED for job tracking)
-  db:
-    image: postgres:15-alpine
-    container_name: s2a-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-s2a_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s2a_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-s2a}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./prisma:/docker-entrypoint-initdb.d
-    networks:
-      - s2a-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a_user} -d ${POSTGRES_DB:-s2a}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: s2a-postgres
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-s2a_user}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s2a_pass}
+  #     POSTGRES_DB: ${POSTGRES_DB:-s2a}
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #     - ./prisma:/docker-entrypoint-initdb.d
+  #   networks:
+  #     - s2a-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a_user} -d ${POSTGRES_DB:-s2a}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
   # S2A API Service
   s2a-api:
@@ -52,63 +52,59 @@ services:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
       - ../uploads:/app/uploads
-    environment:
-      # Database (from .env or defaults)
-      DATABASE_URL: ${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db:5432/s2a}
-      API_KEY_SECRET: ${API_KEY_SECRET:-your-secure-secret-min-32-chars}
-
-      # Redis connection (REQUIRED)
-      S2A_REDIS_HOST: redis
-      S2A_REDIS_PORT: 6379
-      S2A_REDIS_DB: 0
-
-      # Redis batch processing settings
-      S2A_REDIS_BATCH_SIZE: ${S2A_REDIS_BATCH_SIZE:-128}  # 128 for RTFx 3300
-      S2A_REDIS_NUM_WORKERS: ${S2A_REDIS_NUM_WORKERS:-1}  # 1 worker processes 3000+ min/min
-      S2A_REDIS_AUDIO_CACHE_SIZE: ${S2A_REDIS_AUDIO_CACHE_SIZE:-10}
-
-      # ASR Model settings
-      S2A_MODEL_NAME: nvidia/parakeet-tdt-0.6b-v2
-      S2A_DEVICE: cuda
-      S2A_BATCH_SIZE: 128  # Changed from 8 to 128 for new architecture
-      S2A_MAX_CHUNK_DURATION: 1440 # 24 minutes in seconds
-      S2A_MIN_AUDIO_DURATION: 1.0  # Changed from 5.0 to 1.0
-      S2A_OVERLAP_DURATION: ${S2A_OVERLAP_DURATION:-5.0}
-
-      # Performance settings
-      S2A_LOG_LEVEL: INFO
-      S2A_ENABLE_MIXED_PRECISION: true
-      S2A_GPU_MEMORY_FRACTION: 0.8
-      S2A_NUM_WORKERS: 4  # Changed from 2 to 4
-
-      # API settings
-      S2A_API_HOST: 0.0.0.0
-      S2A_API_PORT: 8001
-
     env_file:
       - .env
+    environment:
+      # NVIDIA / GPU
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+      # Database (from .env or defaults)
+      - DATABASE_URL=${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db:5432/s2a}
+      - API_KEY_SECRET=${API_KEY_SECRET:-your-secure-secret-min-32-chars}
+
+      # Redis connection (REQUIRED)
+      - S2A_REDIS_HOST=redis
+      - S2A_REDIS_PORT=6379
+      - S2A_REDIS_DB=0
+
+      # Redis batch processing settings
+      - S2A_REDIS_BATCH_SIZE=${S2A_REDIS_BATCH_SIZE:-128}
+      - S2A_REDIS_NUM_WORKERS=${S2A_REDIS_NUM_WORKERS:-1}
+      - S2A_REDIS_AUDIO_CACHE_SIZE=${S2A_REDIS_AUDIO_CACHE_SIZE:-10}
+
+      # ASR Model settings
+      - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
+      - S2A_DEVICE=cuda
+      - S2A_BATCH_SIZE=128
+      - S2A_MAX_CHUNK_DURATION=1440
+      - S2A_MIN_AUDIO_DURATION=1.0
+      - S2A_OVERLAP_DURATION=${S2A_OVERLAP_DURATION:-5.0}
+
+      # Performance settings
+      - S2A_LOG_LEVEL=INFO
+      - S2A_ENABLE_MIXED_PRECISION=true
+      - S2A_GPU_MEMORY_FRACTION=0.8
+      - S2A_NUM_WORKERS=4
+
+      # API settings
+      - S2A_API_HOST=0.0.0.0
+      - S2A_API_PORT=8001
+
     networks:
       - s2a-network
+    runtime: nvidia
     command: [ "sh", "-c", "prisma migrate deploy && prisma py fetch && python -m uvicorn main:app --host 0.0.0.0 --port 8001" ]
     depends_on:
       redis:
         condition: service_healthy
-      db:
-        condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
   # Monitoring services commented out for initial deployment
   # Uncomment and configure monitoring files if needed
   # prometheus:

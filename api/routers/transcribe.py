@@ -14,7 +14,7 @@ from dependencies import process_audio_background_db
 
 router = APIRouter(prefix="/transcribe", tags=["Transcription"])
 
-@router.post("/", response_model=TranscribeAsyncResponse)
+@router.post("", response_model=TranscribeAsyncResponse)
 async def transcribe_async(
     request: Request,
     response: Response,
