@@ -29,16 +29,14 @@ class TranscriptionChunk:
     word_timestamps: Optional[List[Dict]] = None
 
 class IntelligentChunker:
-    def __init__(self, 
+    def __init__(self,
                  max_chunk_duration: float = 24 * 60,  # 24 minutes
                  overlap_duration: float = 5.0,  # 5 seconds overlap
-                 min_chunk_duration: float = 30.0,  # 30 seconds minimum
-                 voice_activity_threshold: float = 0.5):
-        
+                 min_chunk_duration: float = 30.0):  # 30 seconds minimum
+
         self.max_chunk_duration = max_chunk_duration
         self.overlap_duration = overlap_duration
         self.min_chunk_duration = min_chunk_duration
-        self.voice_activity_threshold = voice_activity_threshold
         
     def detect_speech_boundaries(self, audio: np.ndarray, sr: int) -> List[Tuple[float, float]]:
         """Detect speech segments using voice activity detection and energy analysis"""
@@ -190,8 +188,11 @@ class IntelligentChunker:
         return chunks
 
 class TranscriptionStitcher:
-    def __init__(self, overlap_threshold: float = 0.7):
+    def __init__(self,
+                 overlap_threshold: float = 0.7,
+                 words_per_second: float = 3.0):
         self.overlap_threshold = overlap_threshold
+        self.words_per_second = words_per_second
         
     def calculate_text_similarity(self, text1: str, text2: str) -> float:
         """Calculate similarity between two text segments"""
@@ -221,9 +222,8 @@ class TranscriptionStitcher:
         if len(prev_words) == 0 or len(curr_words) == 0:
             return prev_text, curr_text
         
-        # Estimate words per second (rough approximation)
-        words_per_second = 3.0  # Average speaking rate
-        overlap_words = int(overlap_duration * words_per_second)
+        # Estimate words per second (from config)
+        overlap_words = int(overlap_duration * self.words_per_second)
         
         # Look for the best match in the overlap region
         best_similarity = 0
@@ -380,12 +380,19 @@ class TranscriptionStitcher:
         return text.strip()
 
 class ChunkingManager:
-    def __init__(self, max_chunk_duration: float = 24 * 60, overlap_duration: float = 5.0):
+    def __init__(self,
+                 max_chunk_duration: float = 24 * 60,
+                 overlap_duration: float = 5.0,
+                 words_per_second: float = 3.0,
+                 overlap_similarity_threshold: float = 0.8):
         self.chunker = IntelligentChunker(
             max_chunk_duration=max_chunk_duration,
             overlap_duration=overlap_duration
         )
-        self.stitcher = TranscriptionStitcher()
+        self.stitcher = TranscriptionStitcher(
+            overlap_threshold=overlap_similarity_threshold,
+            words_per_second=words_per_second
+        )
     
     def process_long_audio(self, audio: np.ndarray, sr: int) -> Tuple[List[AudioChunk], callable]:
         """Process long audio into chunks and return stitching function"""

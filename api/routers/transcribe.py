@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTTPException, Form, BackgroundTasks
 from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 import os
-from dependencies import get_services
 from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 from dependencies import get_services, get_transcription_service
 from db_services.auth import require_permission, update_request_usage, get_rate_limit_headers, APIKey
@@ -11,10 +10,11 @@ from config import get_settings
 from loguru import logger
 from webhook import webhook_sender
 from dependencies import process_audio_background_db
+from utils import get_audio_duration
 
 router = APIRouter(prefix="/transcribe", tags=["Transcription"])
 
-@router.post("/", response_model=TranscribeAsyncResponse)
+@router.post("", response_model=TranscribeAsyncResponse)
 async def transcribe_async(
     request: Request,
     response: Response,
@@ -31,7 +31,7 @@ async def transcribe_async(
     transcription_svc = Depends(get_transcription_service)
 ):
     """Asynchronous transcription endpoint - requires transcribe permission and callback_url"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc, batch_proc = services
     job_id = str(uuid.uuid4())
     
     # Validate callback URL
@@ -53,22 +53,18 @@ async def transcribe_async(
     audio_path = await store_uploaded_file(audio_file, job_id)
     
     try:
-        # Get audio info for duration
-        audio, sr, audio_info = audio_proc.process_audio_file(
-            audio_path,
-            enhance=enhance_audio,
-            validate=True
-        )
+        # Get audio duration
+        audio_duration = get_audio_duration(audio_path)
 
          # Check minimum duration (both sync/async same rule)
-        if audio_info['duration'] < asr_svc.min_audio_duration:
-            raise HTTPException(status_code=400, detail="Audio too short. Minimum duration is 1 second.")
+        if audio_duration < asr_svc.min_audio_duration:
+            raise HTTPException(status_code=400, detail="Audio too short. Minimum duration is {settings.min_audio_duration} second.")
         
         
         # Check maximum duration for SYNC API (2 minutes max)
         settings = get_settings()
-        if audio_info['duration'] > settings.max_audio_duration:
-            error_msg = f"Audio too long for sync API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
+        if audio_duration > settings.max_audio_duration:
+            error_msg = f"Audio too long for API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
             raise HTTPException(status_code=400, detail=error_msg)
         
         # Create job record in database
@@ -80,14 +76,14 @@ async def transcribe_async(
             remove_silence=remove_silence,
             priority=priority,
             callback_url=callback_url,
-            audio_duration=audio_info['duration']
+            audio_duration=audio_duration
         )
         
         # Add to background processing
         background_tasks.add_task(
             process_audio_background_db,
             job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
-            asr_svc, audio_proc, batch_proc, include_intelligence, intelligence_mode,
+            asr_svc, batch_proc, include_intelligence, intelligence_mode,
             request.state.api_key, transcription_svc
         )
         
@@ -124,7 +120,7 @@ async def get_transcription_status(
     transcription_svc = Depends(get_transcription_service)
 ):
     """Get status of async transcription job - requires status permission"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc,  batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
@@ -184,7 +180,7 @@ async def cancel_job(
     services = Depends(get_services)
 ):
     """Cancel a pending or processing job - requires transcribe permission"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc, batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
