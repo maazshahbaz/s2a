@@ -17,12 +17,12 @@ async def health_check(
 ):
     """Health check endpoint - public access for monitoring"""
     asr_svc, audio_proc, batch_proc = services
-    
+    batch_processor_stats = await batch_proc.get_queue_stats()
     return HealthResponse(
         status="healthy",
         model_info=asr_svc.get_model_info(),
         gpu_available=torch.cuda.is_available(),
-        batch_processor_stats=batch_proc.get_stats(),
+        batch_processor_stats=batch_processor_stats,
         uptime=time.time() - request.app.state.app_start_time
     )
 

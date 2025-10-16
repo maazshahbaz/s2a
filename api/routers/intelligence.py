@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from intelligence.intelligence_service import get_intelligence_service
 from intelligence.enhanced_extractor import ExtractionMode
-from dependencies import get_api_key
 
 
 router = APIRouter(
@@ -59,7 +58,6 @@ class IntelligenceMetricsResponse(BaseModel):
 async def extract_intelligence(
     request: IntelligenceRequest,
     background_tasks: BackgroundTasks,
-    api_key: str = Depends(get_api_key)
 ) -> IntelligenceJobResponse:
     """
     Submit a transcript for intelligence extraction
@@ -95,7 +93,6 @@ async def extract_intelligence(
 @router.get("/job/{job_id}/status", response_model=Dict[str, Any])
 async def get_job_status(
     job_id: str,
-    api_key: str = Depends(get_api_key)
 ) -> Dict[str, Any]:
     """
     Get the status of an intelligence extraction job
@@ -126,7 +123,6 @@ async def get_job_status(
 @router.get("/job/{job_id}/result", response_model=IntelligenceResultResponse)
 async def get_job_result(
     job_id: str,
-    api_key: str = Depends(get_api_key)
 ) -> IntelligenceResultResponse:
     """
     Get the result of a completed intelligence extraction job
@@ -174,7 +170,6 @@ async def get_job_result(
 @router.post("/extract/sync", response_model=IntelligenceResultResponse)
 async def extract_intelligence_sync(
     request: IntelligenceRequest,
-    api_key: str = Depends(get_api_key)
 ) -> IntelligenceResultResponse:
     """
     Synchronously extract intelligence from a transcript
@@ -239,7 +234,6 @@ async def extract_intelligence_sync(
 
 @router.get("/metrics", response_model=IntelligenceMetricsResponse)
 async def get_intelligence_metrics(
-    api_key: str = Depends(get_api_key)
 ) -> IntelligenceMetricsResponse:
     """
     Get intelligence service metrics and status
