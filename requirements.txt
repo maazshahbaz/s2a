@@ -23,6 +23,9 @@ pandas>=2.0.0
 pydub>=0.25.0
 webrtcvad>=2.0.10
 
+# Queueing and caching
+redis[hiredis]>=5.0.0
+
 # Utilities
 python-dotenv>=1.0.0
 click>=8.1.0

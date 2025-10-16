@@ -8,9 +8,9 @@ from generated.prisma import Prisma
 
 # Dependency to get services
 def get_services(request:Request):
-    if not all([request.app.state.asr_service, request.app.state.audio_processor, request.app.state.batch_processor]):
+    if not all([request.app.state.asr_service, request.app.state.batch_processor]):
         raise HTTPException(status_code=503, detail="Services not initialized")
-    return request.app.state.asr_service, request.app.state.audio_processor, request.app.state.batch_processor
+    return request.app.state.asr_service, request.app.state.batch_processor
 
 async def process_audio_background_db(
     job_id: str,
@@ -20,7 +20,6 @@ async def process_audio_background_db(
     priority: int,
     callback_url: str,
     asr_svc,
-    audio_proc,
     batch_proc,
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
@@ -35,108 +34,29 @@ async def process_audio_background_db(
         if transcription_svc:
             await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.now(timezone.utc))
         
-        # Process audio
-        audio, sr, audio_info = audio_proc.process_audio_file(
-            audio_path,
-            enhance=enhance_audio,
-            validate=True
-        )
-        
-        # Check minimum duration (both sync/async same rule)
-        if audio_info['duration'] < asr_svc.min_audio_duration:
-            error_msg = f"Audio too short ({audio_info['duration']:.1f}s < {asr_svc.min_audio_duration:.1f}s)"
-            logger.info(f"Job {job_id}: {error_msg}")
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
-            return
-        
-        # Check maximum duration for ASYNC API (2 hours max)
-        from config import get_settings
-        settings = get_settings()
-        if audio_info['duration'] > settings.max_async_audio_duration:
-            error_msg = f"Audio too long ({audio_info['duration']:.1f}s > {settings.max_async_audio_duration:.1f}s)"
-            logger.info(f"Job {job_id}: {error_msg}")
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
-            return
-        
-        # Submit to batch processor
-        result = await batch_proc.transcribe_async(
+        # Submit to Redis-based batch processor
+        result = await batch_proc.submit_job(
             job_id=job_id,
-            audio_data=audio,
-            metadata={
-                'sample_rate': sr,
-                'duration': audio_info['duration'],
-                'quality_metrics': audio_info.get('quality_metrics'),
-                'enhancement_applied': enhance_audio,
-                'callback_url': callback_url
-            },
-            priority=priority,
-            timeout=300.0
+            audio_path=audio_path,
+            callback_url=callback_url
         )
-        
-        # Send webhook with results
-        if result:
-            # Save transcription result to database (this also updates job status to completed)
-            if transcription_svc:
-                await transcription_svc.save_transcription_result(
-                    job_id=job_id,
-                    text=result.get('text', ''),
-                    confidence=result.get('confidence'),
-                    rtf=result.get('rtf'),
-                    processing_time=result.get('processing_time'),
-                    chunks=1,
-                    audio_quality=audio_info.get('quality_metrics')
-                )
-            
-            # Track audio duration usage for billing
-            if api_key:
-                from db_services.auth import update_audio_usage
-                await update_audio_usage(api_key, audio_info['duration'])
-            
-            webhook_payload = WebhookPayload(
-                job_id=job_id,
-                status="completed",
-                result=result,
-                processing_time=result.get('processing_time')
-            )
 
-            # Send transcription webhook
-            asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
-            logger.info(f"Job {job_id} transcription completed, webhook sent to {callback_url}")
+        # Job is processing asynchronously - webhook will be sent when complete
+        if result and result.get('status') == 'queued':
+            logger.info(f"Job {job_id} submitted to Redis queue: {result.get('num_chunks')} chunks")
+            return  # Exit early, webhook handles the rest
 
-            # Process intelligence if requested and transcription succeeded
-            if include_intelligence and result.get('text'):
-                try:
-                    from services.intelligence_integration import process_transcript_intelligence
-
-                    # Process intelligence with multi-stage webhooks
-                    intelligence_result = await process_transcript_intelligence(
-                        job_id=job_id,
-                        transcript=result.get('text'),
-                        callback_url=callback_url,  # Will send progressive webhooks
-                        include_quick=True,
-                        include_enhanced=True
-                    )
-
-                    logger.info(f"Intelligence processing initiated for job {job_id}")
-
-                except Exception as e:
-                    logger.error(f"Intelligence processing failed for job {job_id}: {e}")
-                    # Don't fail the entire job if intelligence fails
-
-        else:
-            error_msg = "Transcription processing failed"
+        # For failed submissions, send error webhook
+        if not result or result.get('status') == 'failed':
+            error_msg = result.get('error', 'Failed to submit job to queue') if result else 'Submission failed'
             if transcription_svc:
                 await transcription_svc.update_job_status(job_id, 'failed', error_message=error_msg)
-            
+
             webhook_payload = WebhookPayload(
                 job_id=job_id,
                 status="failed",
                 error=error_msg
             )
-
-            # Send webhook asynchronously (don't wait for it)
             asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
         
     except Exception as e:
