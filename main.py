@@ -41,7 +41,11 @@ async def lifespan(app: FastAPI):
         device=settings.device,
         batch_size=settings.batch_size,
         max_chunk_duration=settings.max_chunk_duration,
-        min_audio_duration=settings.min_audio_duration
+        min_audio_duration=settings.min_audio_duration,
+        overlap_duration=settings.overlap_duration,
+        target_sample_rate=settings.target_sample_rate,
+        words_per_second=settings.words_per_second,
+        overlap_similarity_threshold=settings.overlap_similarity_threshold
     )
     
     app.state.audio_processor = AudioProcessor(

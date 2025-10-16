@@ -280,8 +280,11 @@ class BatchProcessor:
         if not chunk_results:
             return None
 
-        # Stitch results
-        stitching_service = StitchingService()
+        # Stitch results (with config values from asr_service)
+        stitching_service = StitchingService(
+            words_per_second=self.asr_service.words_per_second,
+            overlap_similarity_threshold=self.asr_service.overlap_similarity_threshold
+        )
         final_text = await stitching_service.stitch_transcriptions(
             chunk_results,
             remove_overlap=True

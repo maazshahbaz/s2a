@@ -134,8 +134,7 @@ class ChunkWorker:
         # Pull chunks from queue
         chunks = await self.redis_queue.dequeue_chunks(
             worker_id=self.worker_id,
-            batch_size=self.batch_size,
-            timeout=1.0
+            batch_size=self.batch_size
         )
 
         if not chunks:
@@ -299,8 +298,11 @@ class ChunkWorker:
             logger.error(f"No results found for job {job_id}")
             return
 
-        # Perform stitching
-        stitching_service = StitchingService()
+        # Perform stitching (with config values from asr_service)
+        stitching_service = StitchingService(
+            words_per_second=self.asr_service.words_per_second,
+            overlap_similarity_threshold=self.asr_service.overlap_similarity_threshold
+        )
         final_text = await stitching_service.stitch_transcriptions(
             chunk_results,
             remove_overlap=True

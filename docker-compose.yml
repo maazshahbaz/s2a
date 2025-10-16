@@ -52,6 +52,7 @@ services:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
       - ../uploads:/app/uploads
+      - huggingface-cache:/root/.cache/huggingface  # Persist model cache
     environment:
       # Database (from .env or defaults)
       DATABASE_URL: ${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db:5432/s2a}
@@ -133,6 +134,8 @@ volumes:
   redis-data:
     driver: local
   postgres-data:
+    driver: local
+  huggingface-cache:
     driver: local
   prometheus_data:
     driver: local

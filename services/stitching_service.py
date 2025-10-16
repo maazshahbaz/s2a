@@ -21,8 +21,21 @@ class StitchingService:
     - Maintains transcription accuracy
     """
 
-    @staticmethod
+    def __init__(self,
+                 words_per_second: float = 3.0,
+                 overlap_similarity_threshold: float = 0.8):
+        """
+        Initialize stitching service with config values.
+
+        Args:
+            words_per_second: Average speaking rate for overlap estimation
+            overlap_similarity_threshold: Minimum similarity for fuzzy matching
+        """
+        self.words_per_second = words_per_second
+        self.overlap_similarity_threshold = overlap_similarity_threshold
+
     async def stitch_transcriptions(
+        self,
         chunk_results: List[ChunkResult],
         remove_overlap: bool = True
     ) -> str:
@@ -48,13 +61,12 @@ class StitchingService:
 
         # Stitch chunks together
         if remove_overlap:
-            return StitchingService._stitch_with_overlap_removal(chunk_results)
+            return self._stitch_with_overlap_removal(chunk_results)
         else:
             # Simple concatenation (no overlap removal)
             return " ".join(chunk.text.strip() for chunk in chunk_results)
 
-    @staticmethod
-    def _stitch_with_overlap_removal(chunk_results: List[ChunkResult]) -> str:
+    def _stitch_with_overlap_removal(self, chunk_results: List[ChunkResult]) -> str:
         """
         Stitch chunks with intelligent overlap removal.
 
@@ -79,7 +91,7 @@ class StitchingService:
 
                 if overlap_seconds > 0 and prev_text and text:
                     # Find overlapping text
-                    overlap_text = StitchingService._find_overlap(
+                    overlap_text = self._find_overlap(
                         prev_text,
                         text,
                         overlap_seconds,
@@ -88,7 +100,7 @@ class StitchingService:
 
                     if overlap_text:
                         # Remove overlap from current chunk
-                        text = StitchingService._remove_overlap_from_text(
+                        text = self._remove_overlap_from_text(
                             text,
                             overlap_text
                         )
@@ -107,8 +119,8 @@ class StitchingService:
 
         return result.strip()
 
-    @staticmethod
     def _find_overlap(
+        self,
         prev_text: str,
         curr_text: str,
         overlap_seconds: float,
@@ -122,10 +134,8 @@ class StitchingService:
         2. Fuzzy matching with SequenceMatcher
         3. Word-boundary matching
         """
-        # Estimate overlap length (rough approximation)
-        # Assume ~2-3 words per second of speech
-        words_per_second = 2.5
-        expected_overlap_words = int(overlap_seconds * words_per_second)
+        # Estimate overlap length (from config)
+        expected_overlap_words = int(overlap_seconds * self.words_per_second)
 
         # Get potential overlap regions
         prev_words = prev_text.split()
@@ -142,20 +152,19 @@ class StitchingService:
         curr_prefix = " ".join(curr_words[:search_window])
 
         # Try exact matching first
-        overlap = StitchingService._find_exact_overlap(prev_suffix, curr_prefix)
+        overlap = self._find_exact_overlap(prev_suffix, curr_prefix)
 
         if not overlap:
-            # Try fuzzy matching
-            overlap = StitchingService._find_fuzzy_overlap(
+            # Try fuzzy matching (use config threshold)
+            overlap = self._find_fuzzy_overlap(
                 prev_suffix,
                 curr_prefix,
-                min_similarity=0.8
+                min_similarity=self.overlap_similarity_threshold
             )
 
         return overlap
 
-    @staticmethod
-    def _find_exact_overlap(text1: str, text2: str) -> str:
+    def _find_exact_overlap(self, text1: str, text2: str) -> str:
         """
         Find exact overlapping substring between end of text1 and start of text2.
         """
@@ -171,8 +180,8 @@ class StitchingService:
 
         return best_overlap
 
-    @staticmethod
     def _find_fuzzy_overlap(
+        self,
         text1: str,
         text2: str,
         min_similarity: float = 0.8
@@ -196,8 +205,7 @@ class StitchingService:
 
         return ""
 
-    @staticmethod
-    def _remove_overlap_from_text(text: str, overlap: str) -> str:
+    def _remove_overlap_from_text(self, text: str, overlap: str) -> str:
         """
         Remove overlap from the beginning of text.
         Preserves word boundaries.
@@ -224,15 +232,14 @@ class StitchingService:
                     " ".join(window)
                 ).ratio()
 
-                if similarity >= 0.8:
-                    # Found overlap position, remove it
+                if similarity >= self.overlap_similarity_threshold:
+                    # Found overlap position, remove it (using config threshold)
                     return " ".join(text_words[i + len(overlap_words):])
 
         # If no clear overlap found, return original text
         return text
 
-    @staticmethod
-    def calculate_confidence(chunk_results: List[ChunkResult]) -> float:
+    def calculate_confidence(self, chunk_results: List[ChunkResult]) -> float:
         """Calculate overall confidence from chunk confidences"""
         if not chunk_results:
             return 0.0
@@ -248,8 +255,7 @@ class StitchingService:
 
         return weighted_confidence / total_duration
 
-    @staticmethod
-    def calculate_rtf(chunk_results: List[ChunkResult]) -> float:
+    def calculate_rtf(self, chunk_results: List[ChunkResult]) -> float:
         """Calculate overall RTF from chunk RTFs"""
         if not chunk_results:
             return 0.0
