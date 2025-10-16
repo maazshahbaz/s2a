@@ -42,24 +42,6 @@ async def process_audio_background_db(
             validate=True
         )
         
-        # Check minimum duration (both sync/async same rule)
-        if audio_info['duration'] < asr_svc.min_audio_duration:
-            error_msg = f"Audio too short ({audio_info['duration']:.1f}s < {asr_svc.min_audio_duration:.1f}s)"
-            logger.info(f"Job {job_id}: {error_msg}")
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
-            return
-        
-        # Check maximum duration for ASYNC API (2 hours max)
-        from config import get_settings
-        settings = get_settings()
-        if audio_info['duration'] > settings.max_async_audio_duration:
-            error_msg = f"Audio too long ({audio_info['duration']:.1f}s > {settings.max_async_audio_duration:.1f}s)"
-            logger.info(f"Job {job_id}: {error_msg}")
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'rejected', error_message=error_msg)
-            return
-        
         # Submit to Redis-based batch processor
         result = await batch_proc.submit_job(
             job_id=job_id,
@@ -70,9 +52,6 @@ async def process_audio_background_db(
         # Job is processing asynchronously - webhook will be sent when complete
         if result and result.get('status') == 'queued':
             logger.info(f"Job {job_id} submitted to Redis queue: {result.get('num_chunks')} chunks")
-            # Update job status in database
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'processing')
             return  # Exit early, webhook handles the rest
 
         # For failed submissions, send error webhook

@@ -68,7 +68,7 @@ async def transcribe_async(
         # Check maximum duration for SYNC API (2 minutes max)
         settings = get_settings()
         if audio_info['duration'] > settings.max_audio_duration:
-            error_msg = f"Audio too long for sync API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
+            error_msg = f"Audio too long for API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
             raise HTTPException(status_code=400, detail=error_msg)
         
         # Create job record in database
