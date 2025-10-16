@@ -6,7 +6,6 @@ from loguru import logger
 import time
 from contextlib import asynccontextmanager
 from services.asr_service import NeMoASRService
-from services.audio_utils import AudioProcessor
 from services.batch_processor import BatchProcessor, BatchProcessorConfig
 from config import get_settings, get_intelligence_settings, get_redis_settings
 from api.routers import all_routers
@@ -46,11 +45,6 @@ async def lifespan(app: FastAPI):
         target_sample_rate=settings.target_sample_rate,
         words_per_second=settings.words_per_second,
         overlap_similarity_threshold=settings.overlap_similarity_threshold
-    )
-    
-    app.state.audio_processor = AudioProcessor(
-        target_sr=settings.target_sample_rate,
-        vad_aggressiveness=settings.vad_aggressiveness
     )
     
     # Initialize Redis-based batch processor

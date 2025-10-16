@@ -8,9 +8,9 @@ from generated.prisma import Prisma
 
 # Dependency to get services
 def get_services(request:Request):
-    if not all([request.app.state.asr_service, request.app.state.audio_processor, request.app.state.batch_processor]):
+    if not all([request.app.state.asr_service, request.app.state.batch_processor]):
         raise HTTPException(status_code=503, detail="Services not initialized")
-    return request.app.state.asr_service, request.app.state.audio_processor, request.app.state.batch_processor
+    return request.app.state.asr_service, request.app.state.batch_processor
 
 async def process_audio_background_db(
     job_id: str,
@@ -20,7 +20,6 @@ async def process_audio_background_db(
     priority: int,
     callback_url: str,
     asr_svc,
-    audio_proc,
     batch_proc,
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
@@ -34,13 +33,6 @@ async def process_audio_background_db(
         # Update job status to processing
         if transcription_svc:
             await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.now(timezone.utc))
-        
-        # Process audio
-        audio, sr, audio_info = audio_proc.process_audio_file(
-            audio_path,
-            enhance=enhance_audio,
-            validate=True
-        )
         
         # Submit to Redis-based batch processor
         result = await batch_proc.submit_job(

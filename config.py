@@ -20,9 +20,6 @@ class ASRConfig(BaseSettings):
     gpu_memory_fraction: float = Field(default=0.8, description="Fraction of GPU memory to use")
     enable_mixed_precision: bool = Field(default=True, description="Enable mixed precision training")
 
-    # Audio processing
-    vad_aggressiveness: int = Field(default=3, description="Voice activity detection aggressiveness (0-3)")
-
     # Chunking and stitching parameters
     words_per_second: float = Field(default=3.0, description="Average speaking rate (words/second) for overlap estimation (3.0 = 180 WPM)")
     overlap_similarity_threshold: float = Field(default=0.8, description="Minimum similarity (0-1) for fuzzy overlap detection in stitching")

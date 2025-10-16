@@ -16,7 +16,7 @@ async def health_check(
     services = Depends(get_services)
 ):
     """Health check endpoint - public access for monitoring"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc, batch_proc = services
     batch_processor_stats = await batch_proc.get_queue_stats()
     return HealthResponse(
         status="healthy",
@@ -34,7 +34,7 @@ async def get_service_stats(
     services = Depends(get_services)
 ):
     """Get service performance statistics - requires stats permission"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc, batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
