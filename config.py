@@ -9,20 +9,24 @@ class ASRConfig(BaseSettings):
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to use")
     batch_size: int = Field(default=4, description="Batch size")
     # ASR Model parameters
+    batch_size: int = Field(default=128, description="Batch size for GPU processing")
     max_chunk_duration: float = Field(default=24 * 60, description="Maximum chunk duration in seconds (24 min for Parakeet)")
     min_audio_duration: float = Field(default=1.0, description="Minimum audio duration to process")
     max_audio_duration: float = Field(default=5 * 60 * 60, description="Maximum audio duration (5 hours)")
     target_sample_rate: int = Field(default=16000, description="Target sample rate for audio")
     overlap_duration: float = Field(default=5.0, description="Overlap between chunks in seconds")
-    
+
     # GPU optimization
     gpu_memory_fraction: float = Field(default=0.8, description="Fraction of GPU memory to use")
     enable_mixed_precision: bool = Field(default=True, description="Enable mixed precision training")
-    
+
     # Audio processing
     vad_aggressiveness: int = Field(default=3, description="Voice activity detection aggressiveness (0-3)")
-    overlap_duration: float = Field(default=5.0, description="Overlap duration between chunks in seconds")
-    
+
+    # Chunking and stitching parameters
+    words_per_second: float = Field(default=3.0, description="Average speaking rate (words/second) for overlap estimation (3.0 = 180 WPM)")
+    overlap_similarity_threshold: float = Field(default=0.8, description="Minimum similarity (0-1) for fuzzy overlap detection in stitching")
+
     # API configuration
     api_host: str = Field(default="0.0.0.0", description="API host")
     api_port: int = Field(default=8000, description="API port")

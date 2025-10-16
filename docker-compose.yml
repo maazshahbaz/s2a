@@ -52,6 +52,7 @@ services:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
       - ../uploads:/app/uploads
+      - huggingface-cache:/root/.cache/huggingface # Persist model cache
     env_file:
       - .env
     environment:
@@ -129,6 +130,8 @@ volumes:
   redis-data:
     driver: local
   postgres-data:
+    driver: local
+  huggingface-cache:
     driver: local
   prometheus_data:
     driver: local

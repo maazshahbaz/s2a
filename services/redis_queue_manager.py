@@ -93,8 +93,7 @@ class RedisQueueManager:
     async def dequeue_chunks(
         self,
         worker_id: str,
-        batch_size: int = 128,
-        timeout: float = 1.0
+        batch_size: int
     ) -> List[ChunkMetadata]:
         """
         Pull chunks from pending queue for processing.
