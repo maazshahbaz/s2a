@@ -11,7 +11,6 @@ from urllib.parse import urljoin
 
 import httpx
 from .models import (
-    TranscriptionResult,
     IntelligenceResult,
     QuickIntelligenceResult,
     CompleteResult,
@@ -30,13 +29,10 @@ from .enums import (
     Priority,
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT,
-    MAX_SYNC_AUDIO_DURATION,
+    MIN_ASYNC_AUDIO_DURATION,
     MAX_ASYNC_AUDIO_DURATION,
-    MAX_FILE_SIZE,
-    MIN_AUDIO_DURATION,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
-    DEFAULT_RETRY_BACKOFF
 )
 from .utils import AudioValidator, parse_response, retry_with_backoff
 
@@ -172,56 +168,6 @@ class S2AClient:
 
     # Core Transcription Methods
     @retry_with_backoff()
-    def transcribe(
-        self,
-        audio_file: Union[str, Path, BinaryIO],
-        enhance_audio: bool = True,
-        remove_silence: bool = False
-    ) -> TranscriptionResult:
-        """
-        Synchronous audio transcription (max 2 minutes)
-
-        Args:
-            audio_file: Path to audio file or file-like object
-            enhance_audio: Apply audio enhancement
-            remove_silence: Remove silent portions
-
-        Returns:
-            TranscriptionResult with transcription text and metadata
-
-        Raises:
-            AudioValidationError: Invalid audio file or too long for sync API
-            AuthenticationError: Invalid API key
-            RateLimitError: API rate limit exceeded
-        """
-        # Validate audio file
-        file_path, file_obj = self._audio_validator.prepare_audio_file(audio_file)
-        duration = self._audio_validator.get_audio_duration(file_path or audio_file)
-
-        if duration > MAX_SYNC_AUDIO_DURATION:
-            raise AudioValidationError(
-                f"Audio duration ({duration:.1f}s) exceeds sync API limit ({MAX_SYNC_AUDIO_DURATION}s). "
-                "Use transcribe_async() for longer audio files."
-            )
-
-        # Prepare request
-        files = {"audio_file": file_obj}
-        data = {
-            "enhance_audio": enhance_audio,
-            "remove_silence": remove_silence
-        }
-
-        # Make request
-        response = self._client.post(
-            f"{self.base_url}/v1/transcription/transcribe",
-            files=files,
-            data=data
-        )
-
-        result_data = self._handle_response(response)
-        return parse_response(result_data, TranscriptionResult)
-
-    @retry_with_backoff()
     def transcribe_async(
         self,
         audio_file: Union[str, Path, BinaryIO],
@@ -231,7 +177,7 @@ class S2AClient:
         priority: Priority = Priority.NORMAL
     ) -> AsyncJob:
         """
-        Asynchronous audio transcription (max 2 hours)
+        Asynchronous audio transcription (min 1 sec and max 5 hours)
 
         Args:
             audio_file: Path to audio file or file-like object
@@ -252,6 +198,10 @@ class S2AClient:
         file_path, file_obj = self._audio_validator.prepare_audio_file(audio_file)
         duration = self._audio_validator.get_audio_duration(file_path or audio_file)
 
+        if duration < MIN_ASYNC_AUDIO_DURATION:
+            raise AudioValidationError(
+                f"Audio duration ({duration:.1f}s) is less than async API limit ({MIN_ASYNC_AUDIO_DURATION}s)."
+            )
         if duration > MAX_ASYNC_AUDIO_DURATION:
             raise AudioValidationError(
                 f"Audio duration ({duration:.1f}s) exceeds async API limit ({MAX_ASYNC_AUDIO_DURATION}s)."
@@ -268,7 +218,7 @@ class S2AClient:
 
         # Make request
         response = self._client.post(
-            f"{self.base_url}/v1/transcription/transcribe_async",
+            f"{self.base_url}/v1/transcribe",
             files=files,
             data=data
         )
@@ -339,48 +289,6 @@ class S2AClient:
 
         result_data = self._handle_response(response)
         return parse_response(result_data["intelligence"], QuickIntelligenceResult)
-
-    # Combined Methods (Most Important!)
-    def transcribe_with_intelligence(
-        self,
-        audio_file: Union[str, Path, BinaryIO],
-        intelligence_mode: IntelligenceMode = IntelligenceMode.AUTO_DETECT,
-        enhance_audio: bool = True,
-        include_quick: bool = True
-    ) -> CompleteResult:
-        """
-        Transcribe audio and extract intelligence in one call
-
-        Args:
-            audio_file: Path to audio file or file-like object
-            intelligence_mode: Intelligence extraction mode
-            enhance_audio: Apply audio enhancement
-            include_quick: Include quick intelligence for immediate insights
-
-        Returns:
-            CompleteResult with transcription and intelligence data
-        """
-        # First transcribe
-        transcription = self.transcribe(audio_file, enhance_audio=enhance_audio)
-
-        # Then extract intelligence
-        quick_intelligence = None
-        enhanced_intelligence = None
-
-        try:
-            if include_quick:
-                quick_intelligence = self.extract_quick_intelligence(transcription.text)
-
-            enhanced_intelligence = self.extract_intelligence(transcription.text, intelligence_mode)
-        except IntelligenceUnavailableError:
-            # Continue without intelligence if service is unavailable
-            pass
-
-        return CompleteResult(
-            transcription=transcription,
-            quick_intelligence=quick_intelligence,
-            enhanced_intelligence=enhanced_intelligence
-        )
 
     def transcribe_async_with_intelligence(
         self,

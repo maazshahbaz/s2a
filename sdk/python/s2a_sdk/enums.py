@@ -86,8 +86,8 @@ class Sentiment(str, Enum):
 # API Constants
 DEFAULT_BASE_URL = "https://api.bytepulseai.com"
 DEFAULT_TIMEOUT = 300  # 5 minutes
-MAX_SYNC_AUDIO_DURATION = 120  # 2 minutes in seconds
-MAX_ASYNC_AUDIO_DURATION = 7200  # 2 hours in seconds
+MIN_ASYNC_AUDIO_DURATION = 1  # 1 second
+MAX_ASYNC_AUDIO_DURATION = 18000  # 5 hours in seconds
 
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3

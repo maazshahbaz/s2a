@@ -25,7 +25,7 @@ except FileNotFoundError:
 
 setup(
     name="s2a-sdk",
-    version="1.0.1",
+    version="1.0.2",
     author="99Technologies AI",
     author_email="support@99technologies.ai",
     description="Official Python SDK for S2A Speech-to-Actions Platform",
