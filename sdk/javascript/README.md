@@ -536,7 +536,7 @@ npm run format
 
 ## 📝 Changelog
 
-### Version 1.0.3
+### Version 1.0.4
 - Initial release
 - Complete transcription and intelligence features
 - Multi-stage intelligence extraction

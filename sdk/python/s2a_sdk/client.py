@@ -331,7 +331,7 @@ class S2AClient:
     @retry_with_backoff()
     def get_job_status(self, job_id: str) -> JobStatus:
         """Get status of async job"""
-        response = self._client.get(f"{self.base_url}/v1/transcription/status/{job_id}")
+        response = self._client.get(f"{self.base_url}/v1/transcribe/status/{job_id}")
         result_data = self._handle_response(response)
         return parse_response(result_data, JobStatus)
 

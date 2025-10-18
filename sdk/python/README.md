@@ -886,7 +886,7 @@ Get your API key from the [S2A Dashboard](https://dashboard.bytepulseai.com).
 
 ## 📝 Changelog
 
-### Version 1.0.2
+### Version 1.0.3
 - Initial release
 - Complete transcription and intelligence features
 - Multi-stage intelligence extraction

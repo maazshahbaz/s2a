@@ -179,7 +179,7 @@ export class S2AClient {
    * Get status of async job
    */
   async getJobStatus(jobId: string): Promise<JobStatus> {
-    const response = await this.httpClient.get(`/v1/transcription/status/${jobId}`);
+    const response = await this.httpClient.get(`/v1/transcribe/status/${jobId}`);
     return this.parseJobStatusResponse(response.data);
   }
 

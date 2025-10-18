@@ -1,6 +1,6 @@
 {
   "name": "@99technologies/s2a-sdk",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Official JavaScript SDK for S2A Speech-to-Actions Platform",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
