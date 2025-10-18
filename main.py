@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
 
     app.state.batch_processor = BatchProcessor(
         asr_service=app.state.asr_service,
+        db=app.state.db,
         config=batch_config
     )
     

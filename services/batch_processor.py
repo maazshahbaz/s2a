@@ -14,7 +14,6 @@ from pathlib import Path
 from loguru import logger
 from concurrent.futures import ThreadPoolExecutor
 
-from .chunk_metadata import ChunkMetadata, ChunkResult, JobMetadata
 from .redis_queue_manager import RedisQueueManager
 from .chunk_generator import ChunkGenerator
 from .chunk_worker import ChunkWorker, AudioCache
@@ -54,8 +53,10 @@ class BatchProcessor:
     def __init__(
         self,
         asr_service,
+        db,
         config: BatchProcessorConfig = None
     ):
+        self.db=db
         self.asr_service = asr_service
         self.config = config or BatchProcessorConfig()
 
@@ -100,6 +101,7 @@ class BatchProcessor:
         # Start workers
         for i in range(self.config.num_workers):
             worker = ChunkWorker(
+                db=self.db,
                 worker_id=f"worker_{i}",
                 asr_service=self.asr_service,
                 redis_queue=self.redis_queue,
