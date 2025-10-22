@@ -10,6 +10,7 @@ import time
 from typing import List, Dict, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
+from db_services.transcription import TranscriptionJobService
 from .chunk_metadata import ChunkMetadata, ChunkResult
 from .redis_queue_manager import RedisQueueManager
 from .stitching_service import StitchingService
@@ -84,6 +85,7 @@ class ChunkWorker:
 
     def __init__(
         self,
+        db,
         worker_id: str,
         asr_service,
         redis_queue: RedisQueueManager,
@@ -91,6 +93,7 @@ class ChunkWorker:
         audio_cache: Optional[AudioCache] = None,
         executor: Optional[ThreadPoolExecutor] = None
     ):
+        self.db=db
         self.worker_id = worker_id
         self.asr_service = asr_service
         self.redis_queue = redis_queue
@@ -303,19 +306,26 @@ class ChunkWorker:
             words_per_second=self.asr_service.words_per_second,
             overlap_similarity_threshold=self.asr_service.overlap_similarity_threshold
         )
-        final_text = await stitching_service.stitch_transcriptions(
-            chunk_results,
-            remove_overlap=True
-        )
+
+        transcription_svc = TranscriptionJobService(self.db)
+
+        try:
+            final_text = await stitching_service.stitch_transcriptions(chunk_results, remove_overlap=True)
+        except Exception as e:
+            logger.exception(f"Stitching failed for job {job_id}: {e}")
+            await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
+            await self.redis_queue.update_job_status(job_id, 'error')
+            return
 
         # Calculate overall metrics
         overall_confidence = stitching_service.calculate_confidence(chunk_results)
         overall_rtf = stitching_service.calculate_rtf(chunk_results)
-        total_duration = sum(c.duration for c in chunk_results)
+        total_duration = sum((c.end_time - c.start_time) for c in chunk_results)
         total_processing_time = sum(c.processing_time for c in chunk_results)
 
         # Update job status
         await self.redis_queue.update_job_status(job_id, 'completed')
+        await transcription_svc.save_transcription_result(job_id, final_text,overall_confidence,overall_rtf,total_processing_time,len(chunk_results))
 
         # Get job metadata for webhook
         job_key = self.redis_queue.job_status_key(job_id)

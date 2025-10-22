@@ -17,7 +17,6 @@ import {
   AsyncJob,
   JobStatus,
   AudioInput,
-  TranscribeOptions,
   TranscribeAsyncOptions,
   IntelligenceOptions,
   AudioValidation
@@ -40,8 +39,8 @@ import {
 
 const DEFAULT_BASE_URL = 'https://api.bytepulseai.com';
 const DEFAULT_TIMEOUT = 300000; // 5 minutes
-const MAX_SYNC_AUDIO_DURATION = 120; // 2 minutes
-const MAX_ASYNC_AUDIO_DURATION = 7200; // 2 hours
+const MIN_ASYNC_AUDIO_DURATION = 1; // 1 second
+const MAX_ASYNC_AUDIO_DURATION = 18000; // 5 hours
 
 export class S2AClient {
   private readonly apiKey: string;
@@ -85,33 +84,7 @@ export class S2AClient {
   }
 
   /**
-   * Synchronous audio transcription (max 2 minutes)
-   */
-  async transcribe(
-    audioFile: AudioInput,
-    options: TranscribeOptions = {}
-  ): Promise<TranscriptionResult> {
-    const validation = await this.validateAudio(audioFile);
-
-    if (validation.duration && validation.duration > MAX_SYNC_AUDIO_DURATION) {
-      throw new AudioValidationError(
-        `Audio duration (${validation.duration}s) exceeds sync API limit (${MAX_SYNC_AUDIO_DURATION}s). Use transcribeAsync() for longer audio files.`
-      );
-    }
-
-    const formData = await this.prepareAudioFormData(audioFile);
-    formData.append('enhance_audio', String(options.enhanceAudio ?? true));
-    formData.append('remove_silence', String(options.removeSilence ?? false));
-
-    const response = await this.httpClient.post('/v1/transcription/transcribe', formData, {
-      headers: formData.getHeaders?.() || { 'Content-Type': 'multipart/form-data' }
-    });
-
-    return this.parseTranscriptionResponse(response.data);
-  }
-
-  /**
-   * Asynchronous audio transcription (max 2 hours)
+   * Asynchronous audio transcription (min 1 sec and max 5 hours)
    */
   async transcribeAsync(
     audioFile: AudioInput,
@@ -119,6 +92,12 @@ export class S2AClient {
   ): Promise<AsyncJob> {
     const validation = await this.validateAudio(audioFile);
 
+    if (validation.duration && validation.duration < MIN_ASYNC_AUDIO_DURATION) {
+      throw new AudioValidationError(
+        `Audio duration (${validation.duration}s) is less than async API limit (${MAX_ASYNC_AUDIO_DURATION}s).`
+      );
+    }
+  
     if (validation.duration && validation.duration > MAX_ASYNC_AUDIO_DURATION) {
       throw new AudioValidationError(
         `Audio duration (${validation.duration}s) exceeds async API limit (${MAX_ASYNC_AUDIO_DURATION}s).`
@@ -131,7 +110,7 @@ export class S2AClient {
     formData.append('remove_silence', String(options.removeSilence ?? false));
     formData.append('priority', options.priority ?? Priority.NORMAL);
 
-    const response = await this.httpClient.post('/v1/transcription/transcribe/async', formData, {
+    const response = await this.httpClient.post('/v1/transcribe', formData, {
       headers: formData.getHeaders?.() || { 'Content-Type': 'multipart/form-data' }
     });
 
@@ -177,40 +156,6 @@ export class S2AClient {
   }
 
   /**
-   * Transcribe audio and extract intelligence in one call
-   */
-  async transcribeWithIntelligence(
-    audioFile: AudioInput,
-    options: TranscribeOptions & IntelligenceOptions & { includeQuick?: boolean } = {}
-  ): Promise<CompleteResult> {
-    // First transcribe
-    const transcription = await this.transcribe(audioFile, options);
-
-    // Then extract intelligence
-    let quickIntelligence: QuickIntelligenceResult | undefined;
-    let enhancedIntelligence: IntelligenceResult | undefined;
-
-    try {
-      if (options.includeQuick !== false) {
-        quickIntelligence = await this.extractQuickIntelligence(transcription.text);
-      }
-
-      enhancedIntelligence = await this.extractIntelligence(transcription.text, options);
-    } catch (error) {
-      if (!(error instanceof IntelligenceUnavailableError)) {
-        throw error;
-      }
-      // Continue without intelligence if service is unavailable
-    }
-
-    return {
-      transcription,
-      quickIntelligence,
-      enhancedIntelligence
-    };
-  }
-
-  /**
    * Asynchronous transcription with automatic intelligence extraction
    */
   async transcribeAsyncWithIntelligence(
@@ -234,7 +179,7 @@ export class S2AClient {
    * Get status of async job
    */
   async getJobStatus(jobId: string): Promise<JobStatus> {
-    const response = await this.httpClient.get(`/v1/transcription/status/${jobId}`);
+    const response = await this.httpClient.get(`/v1/transcribe/status/${jobId}`);
     return this.parseJobStatusResponse(response.data);
   }
 

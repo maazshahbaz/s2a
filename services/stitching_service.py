@@ -92,11 +92,11 @@ class StitchingService:
                 if overlap_seconds > 0 and prev_text and text:
                     # Find overlapping text
                     overlap_text = self._find_overlap(
-                        prev_text,
-                        text,
-                        overlap_seconds,
-                        chunk.duration
-                    )
+                    prev_text,
+                    text,
+                    overlap_seconds,
+                    chunk.end_time - chunk.start_time
+                )
 
                     if overlap_text:
                         # Remove overlap from current chunk
@@ -245,12 +245,12 @@ class StitchingService:
             return 0.0
 
         # Weighted average by duration
-        total_duration = sum(c.duration for c in chunk_results)
+        total_duration = sum(c.end_time - c.start_time for c in chunk_results)
         if total_duration == 0:
             return 0.0
 
         weighted_confidence = sum(
-            c.confidence * c.duration for c in chunk_results
+            c.confidence * (c.end_time - c.start_time) for c in chunk_results
         )
 
         return weighted_confidence / total_duration
