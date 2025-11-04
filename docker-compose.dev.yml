@@ -1,28 +1,108 @@
 version: "3.9"
 
 services:
+  # Redis (same as prod, since it’s lightweight and needed for chunk queue)
+  redis-dev:
+    image: redis:7-alpine
+    container_name: s2a-redis-dev
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data-dev:/data
+    networks:
+      - s2a-network-dev
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Database
+  db-dev:
+    image: postgres:15-alpine
+    container_name: s2a-postgres-dev
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-s2a_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s2a_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-s2a_dev}
+    ports:
+      - "5433:5432" # separate from prod
+    volumes:
+      - postgres-data-dev:/var/lib/postgresql/data
+      - ./prisma:/docker-entrypoint-initdb.d
+    networks:
+      - s2a-network-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a_user} -d ${POSTGRES_DB:-s2a_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API service with hot reload
   s2a-api-dev:
     build: .
+    container_name: s2a-api-dev
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     ports:
-      - "8002:8001" # API port
-      - "9091:9090" # Prometheus metrics port
+      - "8002:8001" # dev API port
+      - "9091:9090" # dev Prometheus port
     volumes:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
-      - .:/app # bind mount source code for hot reload
-    env_file:
-      - .env.dev
+      - ../uploads:/app/uploads
+      - .:/app # source code mount for hot reload
+      - huggingface-cache-dev:/root/.cache/huggingface
+    # env_file:
+    #   - .env.dev
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+      # DB + Redis
+      - DATABASE_URL=${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db-dev:5432/s2a_dev}
+      - S2A_REDIS_HOST=redis-dev
+      - S2A_REDIS_PORT=6379
+      - S2A_REDIS_DB=0
+
+      # Redis batch settings (smaller for dev)
+      - S2A_REDIS_BATCH_SIZE=8
+      - S2A_REDIS_NUM_WORKERS=1
+      - S2A_REDIS_AUDIO_CACHE_SIZE=5
+
+      # ASR model
       - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
       - S2A_DEVICE=cuda
-      - S2A_BATCH_SIZE=2 # smaller batch for dev
+      - S2A_BATCH_SIZE=2
       - S2A_MAX_CHUNK_DURATION=600
       - S2A_MIN_AUDIO_DURATION=5.0
-      - S2A_LOG_LEVEL=DEBUG # verbose logging
+      - S2A_OVERLAP_DURATION=3.0
+
+      # Diarization
+      - S2A_DIAR_MODEL=nvidia/diar_sortformer_4spk-v1
+      - S2A_DIAR_MAX_SPEAKERS=4
+
+      # Performance / API
+      - S2A_LOG_LEVEL=DEBUG
       - S2A_ENABLE_MIXED_PRECISION=false
       - S2A_GPU_MEMORY_FRACTION=0.5
       - S2A_NUM_WORKERS=1
-    command: [ "sh", "-c", "prisma generate && (prisma migrate deploy || (echo 'Baseline required, marking existing migrations as applied...' && prisma migrate resolve --applied $(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001" ]
+      - S2A_API_HOST=0.0.0.0
+      - S2A_API_PORT=8001
+      - API_KEY_SECRET=${API_KEY_SECRET:-REDACTED_API_KEY_SECRET}
+
+    networks:
+      - s2a-network-dev
+    runtime: nvidia
+    command: [ "sh", "-c", "prisma generate && (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001" ]
+    depends_on:
+      redis-dev:
+        condition: service_healthy
+      db-dev:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
@@ -31,15 +111,14 @@ services:
       retries: 3
       start_period: 60s
 
-  db-dev:
-    image: postgres:15
-    env_file:
-      - .env.dev
-    ports:
-      - "5433:5432" # separate port to avoid conflicts with prod DB
-    volumes:
-      - postgres_data_dev:/var/lib/postgresql/data
-    restart: always
+networks:
+  s2a-network-dev:
+    driver: bridge
 
 volumes:
-  postgres_data_dev:
+  redis-data-dev:
+    driver: local
+  postgres-data-dev:
+    driver: local
+  huggingface-cache-dev:
+    driver: local

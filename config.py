@@ -159,6 +159,7 @@ _settings = None
 _redis_settings = None
 _intelligence_settings = None
 _intelligence_metrics_settings = None
+_diarization_settings = None
 
 def get_settings() -> ASRConfig:
     global _settings
@@ -183,3 +184,24 @@ def get_intelligence_metrics_settings() -> IntelligenceMetricsConfig:
     if _intelligence_metrics_settings is None:
         _intelligence_metrics_settings = IntelligenceMetricsConfig()
     return _intelligence_metrics_settings
+
+
+# Diarization configuration
+class DiarizationConfig(BaseSettings):
+    enabled: bool = Field(default=True, description="Enable diarization pipeline (mandatory in API)")
+    model_name: str = Field(default="nvidia/diar_sortformer_4spk-v1", description="Diarization model")
+    max_speakers: int = Field(default=4, description="Maximum number of speakers")
+    timeout_seconds: float = Field(default=120.0, description="Diarization timeout budget")
+
+    model_config = {
+        "env_prefix": "S2A_DIAR_",
+        "case_sensitive": False,
+        "extra": "ignore"
+    }
+
+
+def get_diarization_settings() -> DiarizationConfig:
+    global _diarization_settings
+    if _diarization_settings is None:
+        _diarization_settings = DiarizationConfig()
+    return _diarization_settings

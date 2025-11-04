@@ -61,12 +61,13 @@ model TranscriptionJob {
 model TranscriptionResult {
   id             String   @id @default(dbgenerated("gen_random_uuid()"))
   jobId          String   @unique @map("job_id") // foreign key
-  text           String
+  text           String   // Full transcription without speaker labels
   confidence     Float?
   rtf            Float? // real-time factor
   processingTime Float?   @map("processing_time") // in seconds
   chunks         Int?     @default(1)
-  audioQuality   Json?    @map("audio_quality") // quality metrics as JSON
+  diarization    Json?    // Diarization data: speakerTranscript, numSpeakers, diarizationStatus, etc.
+  audioQuality   Json?    @map("audio_quality") // Audio quality metrics (SNR, noise level, etc.)
   createdAt      DateTime @default(now()) @map("created_at")
 
   // Relations

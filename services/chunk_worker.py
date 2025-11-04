@@ -15,6 +15,9 @@ from .chunk_metadata import ChunkMetadata, ChunkResult
 from .redis_queue_manager import RedisQueueManager
 from .stitching_service import StitchingService
 from .chunking_utils import AudioChunk
+from .alignment_service import align_sentence_segments, render_speaker_attributed_text
+from .diarization_service import load_diar_segments
+from config import get_diarization_settings
 
 
 class AudioCache:
@@ -323,9 +326,113 @@ class ChunkWorker:
         total_duration = sum((c.end_time - c.start_time) for c in chunk_results)
         total_processing_time = sum(c.processing_time for c in chunk_results)
 
-        # Update job status
+        # Wait for diarization results with adaptive timeout based on audio duration
+        # For 5-hour max audio: diarization takes ~75-90s, so we need adequate timeout
+        def calculate_diarization_timeout(duration_seconds: float) -> int:
+            """
+            Calculate timeout iterations based on audio duration.
+            Diarization speed: ~230x real-time (4s for 15min, 90s for 5hr)
+            Max audio: 5 hours (18,000s)
+            Max diarization time: ~90s
+            """
+            # Estimate diarization time (conservative: 200x real-time)
+            estimated_diar_seconds = duration_seconds / 200.0
+            
+            # Add 50% buffer for safety
+            timeout_seconds = estimated_diar_seconds * 1.5
+            
+            # Clamp between 6s (minimum) and 120s (maximum for 5hr audio)
+            timeout_seconds = max(6.0, min(120.0, timeout_seconds))
+            
+            # Convert to iterations (each iteration = 0.1s)
+            return int(timeout_seconds * 10)
+        
+        timeout_iterations = calculate_diarization_timeout(total_duration)
+        logger.info(f"Waiting for diarization (timeout: {timeout_iterations/10:.1f}s for {total_duration:.1f}s audio)")
+        
+        diar_json = await load_diar_segments(self.redis_queue.redis, job_id)
+        diarization_status = 'completed'
+        
+        if not diar_json:
+            # Check if diarization failed
+            diar_status_key = f"diar:{job_id}:status"
+            diar_failure = await self.redis_queue.redis.get(diar_status_key)
+            
+            if diar_failure and diar_failure.decode() == 'failed':
+                logger.warning(f"Diarization failed for job {job_id}, using single-speaker fallback")
+                diarization_status = 'failed'
+            else:
+                # Poll with adaptive timeout
+                for i in range(timeout_iterations):
+                    await asyncio.sleep(0.1)
+                    diar_json = await load_diar_segments(self.redis_queue.redis, job_id)
+                    if diar_json:
+                        logger.info(f"Diarization ready after {(i+1)/10:.1f}s wait")
+                        break
+                    
+                    # Check for failure during polling
+                    diar_failure = await self.redis_queue.redis.get(diar_status_key)
+                    if diar_failure and diar_failure.decode() == 'failed':
+                        logger.warning(f"Diarization failed during wait for job {job_id}")
+                        diarization_status = 'failed'
+                        break
+                
+                if not diar_json and diarization_status != 'failed':
+                    logger.warning(f"Diarization timeout after {timeout_iterations/10:.1f}s for job {job_id}")
+                    diarization_status = 'timeout'
+
+        speaker_blocks = []
+        num_speakers = 0
+
+        # Align segments if diarization is available; else proceed with single-speaker
+        if diar_json and diar_json.get('segments'):
+            # Build ASR segments from chunk results
+            asr_segments = []
+            for c in chunk_results:
+                if c.text:
+                    asr_segments.append({
+                        'start_time': c.start_time,
+                        'end_time': c.end_time,
+                        'text': c.text,
+                    })
+            
+            logger.info(f"Aligning {len(asr_segments)} ASR segments with {len(diar_json['segments'])} diarization segments")
+            logger.debug(f"Diarization speakers: {set(s['speaker'] for s in diar_json['segments'])}")
+            
+            speaker_blocks, num_speakers = align_sentence_segments(asr_segments, diar_json['segments'])
+            
+            logger.info(f"Alignment produced {len(speaker_blocks)} speaker blocks with {num_speakers} unique speakers")
+            logger.debug(f"Speaker blocks: {[(b['speaker'], b['start'], b['end']) for b in speaker_blocks[:5]]}")
+            
+        else:
+            # Fallback: assume single speaker
+            speaker_blocks = [{
+                'speaker': 'SPK_1',
+                'start': min(c.start_time for c in chunk_results),
+                'end': max(c.end_time for c in chunk_results),
+                'text': final_text,
+            }]
+            num_speakers = 1
+
+        # Update job status and save result with diarization in dedicated field
         await self.redis_queue.update_job_status(job_id, 'completed')
-        await transcription_svc.save_transcription_result(job_id, final_text,overall_confidence,overall_rtf,total_processing_time,len(chunk_results))
+        diar_cfg = get_diarization_settings()
+        diarization_data = {
+            'speakerTranscript': speaker_blocks,
+            'numSpeakers': num_speakers,
+            'diarModel': diar_cfg.model_name,
+            'diarizationStatus': diarization_status,  # 'completed', 'timeout', or 'failed'
+            'audioDuration': total_duration
+        }
+        await transcription_svc.save_transcription_result(
+            job_id,
+            final_text,  # Plain text without speaker labels
+            overall_confidence,
+            overall_rtf,
+            total_processing_time,
+            len(chunk_results),
+            diarization=diarization_data,  # Diarization data in dedicated field
+        )
 
         # Get job metadata for webhook
         job_key = self.redis_queue.job_status_key(job_id)
@@ -349,7 +456,8 @@ class ChunkWorker:
                     'rtf': overall_rtf,
                     'processing_time': total_processing_time,
                     'chunks_processed': len(chunk_results),
-                    'confidence': overall_confidence
+                    'confidence': overall_confidence,
+                    'diarization': diarization_data,
                 }
 
                 # Send webhook
