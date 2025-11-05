@@ -85,80 +85,10 @@ class PerformanceConfig(BaseSettings):
     }
 
 
-# Intelligence processing configuration
-class IntelligenceConfig(BaseSettings):
-    # Core intelligence settings
-    enabled: bool = Field(default=True, description="Enable intelligence extraction pipeline")
-    vllm_base_url: str = Field(default="http://localhost:8000/v1", description="vLLM API server base URL")
-    model_name: str = Field(default="Qwen/Qwen2.5-7B-Instruct", description="Language model for intelligence extraction")
-    
-    # Processing parameters
-    temperature: float = Field(default=0.2, description="Model temperature for extraction")
-    max_tokens: int = Field(default=500, description="Maximum tokens for model response")
-    top_p: float = Field(default=0.9, description="Top-p sampling parameter")
-    timeout_seconds: float = Field(default=30.0, description="API request timeout in seconds")
-    
-    # Memory and performance
-    gpu_memory_utilization: float = Field(default=0.6, description="GPU memory fraction for vLLM (when co-located with ASR)")
-    max_model_len: int = Field(default=16000, description="Maximum model context length")
-    
-    # Processing behavior
-    auto_process: bool = Field(default=True, description="Automatically process transcriptions for intelligence")
-    retry_attempts: int = Field(default=2, description="Number of retry attempts for failed extractions")
-    batch_processing: bool = Field(default=True, description="Enable batch processing of intelligence jobs")
-    max_batch_size: int = Field(default=8, description="Maximum batch size for intelligence processing")
-    
-    # Queue configuration
-    queue_max_size: int = Field(default=200, description="Maximum intelligence processing queue size")
-    processing_timeout: float = Field(default=600.0, description="Intelligence processing timeout in seconds")
-    queue_check_interval: float = Field(default=5.0, description="Interval to check queue for new jobs")
-    
-    # Output configuration  
-    save_raw_responses: bool = Field(default=False, description="Save raw LLM responses for debugging")
-    confidence_threshold: float = Field(default=0.6, description="Minimum confidence score for valid extractions")
-    
-    # Integration settings
-    webhook_intelligence_enabled: bool = Field(default=True, description="Include intelligence data in webhook callbacks")
-    storage_enabled: bool = Field(default=True, description="Store extracted intelligence data persistently")
-    
-    model_config = {
-        "env_prefix": "S2A_INTEL_",
-        "case_sensitive": False,
-        "extra": "ignore"
-    }
 
-
-# Intelligence metrics and monitoring configuration
-class IntelligenceMetricsConfig(BaseSettings):
-    # Metrics collection
-    enable_metrics: bool = Field(default=True, description="Enable intelligence metrics collection")
-    metrics_interval: float = Field(default=15.0, description="Metrics collection interval in seconds")
-    
-    # Performance thresholds
-    extraction_latency_warning: float = Field(default=5.0, description="Extraction latency warning threshold (seconds)")
-    extraction_latency_error: float = Field(default=15.0, description="Extraction latency error threshold (seconds)")
-    
-    # Success rate monitoring
-    success_rate_warning: float = Field(default=0.7, description="Success rate warning threshold (0-1)")
-    success_rate_error: float = Field(default=0.5, description="Success rate error threshold (0-1)")
-    
-    # Queue monitoring
-    queue_warning_threshold: int = Field(default=100, description="Intelligence queue warning threshold")
-    queue_error_threshold: int = Field(default=150, description="Intelligence queue error threshold")
-    
-    # Field extraction rates
-    field_hit_rate_warning: float = Field(default=0.4, description="Field hit rate warning threshold (0-1)")
-    
-    model_config = {
-        "env_prefix": "S2A_INTEL_METRICS_",
-        "extra": "ignore"
-    }
-    
 # Global settings instances
 _settings = None
 _redis_settings = None
-_intelligence_settings = None
-_intelligence_metrics_settings = None
 _diarization_settings = None
 
 def get_settings() -> ASRConfig:
@@ -172,18 +102,6 @@ def get_redis_settings() -> RedisConfig:
     if _redis_settings is None:
         _redis_settings = RedisConfig()
     return _redis_settings
-
-def get_intelligence_settings() -> IntelligenceConfig:
-    global _intelligence_settings
-    if _intelligence_settings is None:
-        _intelligence_settings = IntelligenceConfig()
-    return _intelligence_settings
-
-def get_intelligence_metrics_settings() -> IntelligenceMetricsConfig:
-    global _intelligence_metrics_settings
-    if _intelligence_metrics_settings is None:
-        _intelligence_metrics_settings = IntelligenceMetricsConfig()
-    return _intelligence_metrics_settings
 
 
 # Diarization configuration
