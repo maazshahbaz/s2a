@@ -189,7 +189,7 @@ def get_intelligence_metrics_settings() -> IntelligenceMetricsConfig:
 # Diarization configuration
 class DiarizationConfig(BaseSettings):
     enabled: bool = Field(default=True, description="Enable diarization pipeline (mandatory in API)")
-    model_name: str = Field(default="nvidia/diar_sortformer_4spk-v1", description="Diarization model")
+    model_name: str = Field(default="nvidia/diar_sortformer_4spk-v1", description="Diarization model from HuggingFace")
     max_speakers: int = Field(default=4, description="Maximum number of speakers")
     timeout_seconds: float = Field(default=120.0, description="Diarization timeout budget")
 

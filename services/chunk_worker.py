@@ -4,6 +4,7 @@ Pulls chunks from Redis queue and processes them with cross-job batching.
 """
 
 import asyncio
+import json
 import numpy as np
 import soundfile as sf
 import time
@@ -15,8 +16,8 @@ from .chunk_metadata import ChunkMetadata, ChunkResult
 from .redis_queue_manager import RedisQueueManager
 from .stitching_service import StitchingService
 from .chunking_utils import AudioChunk
-from .alignment_service import align_sentence_segments, render_speaker_attributed_text
-from .diarization_service import load_diar_segments
+from .alignment_service import align_sentence_segments, align_words_to_speakers, render_speaker_attributed_text
+from .diarization_service import load_diar_segments, DiarizationService
 from config import get_diarization_settings
 
 
@@ -276,7 +277,8 @@ class ChunkWorker:
                 processing_time=chunk_processing_time,
                 rtf=rtf,
                 overlap_start=chunk.overlap_start,
-                overlap_end=chunk.overlap_end
+                overlap_end=chunk.overlap_end,
+                word_timestamps=transcription.get('word_timestamps')  # Add word timestamps
             )
 
             # Store result and check if job is complete
@@ -292,6 +294,89 @@ class ChunkWorker:
         if jobs_to_stitch:
             for job_id in jobs_to_stitch:
                 await self._trigger_stitching(job_id)
+
+    async def _get_diarization_queue_depth(self) -> int:
+        """
+        Estimate current diarization queue depth by checking active jobs.
+        Returns approximate number of jobs waiting/processing.
+        """
+        try:
+            # Count active diarization jobs by checking Redis keys
+            # This is an approximation - actual queue depth may vary
+            pattern = "diar:*:status"
+            keys = await self.redis_queue.redis.keys(pattern)
+            
+            # Count jobs that are actively processing (not failed/completed)
+            active_jobs = 0
+            for key in keys:
+                status = await self.redis_queue.redis.get(key)
+                if status and status.decode() not in ['failed', 'completed']:
+                    active_jobs += 1
+            
+            # Also check for recent diarization results (jobs completed in last 5 minutes)
+            recent_pattern = "diar:*:result"
+            result_keys = await self.redis_queue.redis.keys(recent_pattern)
+            
+            # Estimate queue depth based on active jobs + recent activity
+            estimated_depth = max(active_jobs, len(result_keys))
+            return estimated_depth  # Remove cap - allow unlimited queue depth
+            
+        except Exception as e:
+            logger.warning(f"Error estimating queue depth: {e}")
+            return 3  # Conservative default estimate
+
+    async def _run_diarization_async(self, job_id: str, audio_path: str, diar_service: DiarizationService):
+        """Run diarization asynchronously and store results in Redis"""
+        try:
+            logger.info(f"Starting diarization for job {job_id}")
+            
+            # Set initial status
+            await self.redis_queue.redis.set(f"diar:{job_id}:status", "processing")
+            
+            # Run diarization
+            diar_segments = await diar_service.run(audio_path)
+            
+            # Store results in Redis for the main thread to pick up
+            diar_result = {
+                'numSpeakers': len(set(seg.speaker for seg in diar_segments)),
+                'segments': [
+                    {
+                        'start': seg.start,
+                        'end': seg.end,
+                        'speaker': seg.speaker
+                    } for seg in diar_segments
+                ]
+            }
+            
+            # Store both result and segments for compatibility
+            await self.redis_queue.redis.setex(
+                f"diar:{job_id}:result", 
+                3600,  # 1 hour expiry
+                json.dumps(diar_result)
+            )
+            await self.redis_queue.redis.setex(
+                f"diar:{job_id}:segments",
+                3600,  # 1 hour expiry  
+                json.dumps(diar_result)
+            )
+            
+            # Update status to completed
+            await self.redis_queue.redis.setex(
+                f"diar:{job_id}:status",
+                3600,  # 1 hour expiry
+                "completed"
+            )
+            
+            logger.info(f"Diarization completed for job {job_id}: {diar_result['numSpeakers']} speakers, {len(diar_segments)} segments")
+            
+        except Exception as e:
+            logger.error(f"Diarization failed for job {job_id}: {e}")
+            # Store failure status
+            await self.redis_queue.redis.setex(
+                f"diar:{job_id}:status",
+                3600,  # 1 hour expiry
+                "failed"
+            )
 
     async def _trigger_stitching(self, job_id: str):
         """Trigger stitching for a completed job and send webhook"""
@@ -326,28 +411,90 @@ class ChunkWorker:
         total_duration = sum((c.end_time - c.start_time) for c in chunk_results)
         total_processing_time = sum(c.processing_time for c in chunk_results)
 
+        # TRIGGER DIARIZATION after stitching is complete
+        try:
+            # Get audio file path from Redis job status hash
+            job_status_key = f"stt:jobs:{job_id}:status"
+            audio_path_bytes = await self.redis_queue.redis.hget(job_status_key, "audio_path")
+            audio_path = audio_path_bytes.decode() if audio_path_bytes else None
+            
+            if audio_path and total_duration > 0:
+                logger.info(f"Triggering diarization for job {job_id} on audio: {audio_path} ({total_duration:.1f}s)")
+                
+                # Initialize diarization service
+                diar_settings = get_diarization_settings()
+                diar_service = DiarizationService(
+                    model_name=diar_settings.model_name,
+                    max_speakers=diar_settings.max_speakers
+                )
+                
+                # Run diarization asynchronously
+                asyncio.create_task(self._run_diarization_async(job_id, audio_path, diar_service))
+                logger.info(f"Diarization task started for job {job_id}")
+            else:
+                logger.warning(f"No audio path available for diarization of job {job_id}")
+        except Exception as e:
+            logger.error(f"Failed to trigger diarization for job {job_id}: {e}")
+
         # Wait for diarization results with adaptive timeout based on audio duration
         # For 5-hour max audio: diarization takes ~75-90s, so we need adequate timeout
         def calculate_diarization_timeout(duration_seconds: float) -> int:
             """
-            Calculate timeout iterations based on audio duration.
-            Diarization speed: ~230x real-time (4s for 15min, 90s for 5hr)
-            Max audio: 5 hours (18,000s)
-            Max diarization time: ~90s
+            Calculate timeout iterations based on audio duration with 24-minute chunking.
+            
+            For H100 with 24-minute chunks and 3 concurrent jobs:
+            - Diarization speed: ~150x real-time with chunking (120s for 5hr audio)
+            - Queue wait time: (queue_depth - 3) × job_time for concurrent processing
+            - Max wait: Capped at 60 minutes for very long queues
             """
-            # Estimate diarization time (conservative: 200x real-time)
-            estimated_diar_seconds = duration_seconds / 200.0
+            # Estimate diarization processing time with 24-minute chunking
+            # Real performance: 65min audio processes in ~30-40s with chunking
+            estimated_diar_seconds = duration_seconds / 150.0  # More conservative estimate
             
-            # Add 50% buffer for safety
-            timeout_seconds = estimated_diar_seconds * 1.5
+            # Account for queue waiting (jobs beyond current 3 slots)
+            max_queue_wait = estimated_diar_seconds * max(0, queue_depth - 3)
             
-            # Clamp between 6s (minimum) and 120s (maximum for 5hr audio)
-            timeout_seconds = max(6.0, min(120.0, timeout_seconds))
+            # Total time = processing time + queue wait time + buffer
+            total_time = estimated_diar_seconds + max_queue_wait + 120  # 2min buffer
+            
+            # Clamp between 30s (minimum) and 3600s (60 minutes maximum)
+            timeout_seconds = max(30.0, min(3600.0, total_time))
+            
+            logger.info(f"Timeout calculation: {duration_seconds/60:.1f}min audio → "
+                       f"{estimated_diar_seconds:.1f}s processing + "
+                       f"{max_queue_wait:.1f}s queue = {timeout_seconds:.1f}s total")
             
             # Convert to iterations (each iteration = 0.1s)
             return int(timeout_seconds * 10)
         
-        timeout_iterations = calculate_diarization_timeout(total_duration)
+        # Get current diarization queue depth for more accurate timeout
+        try:
+            # Check how many diarization jobs are currently running/queued
+            queue_depth = await self._get_diarization_queue_depth()
+            logger.info(f"Current diarization queue depth: {queue_depth} jobs")
+            
+            # Adjust timeout based on actual queue depth
+            if queue_depth > 0:
+                # Recalculate timeout with actual queue info
+                def calculate_queue_aware_timeout(duration_seconds: float, queue_depth: int) -> int:
+                    estimated_diar_seconds = duration_seconds / 150.0  # Updated for 24-minute chunking
+                    queue_wait = estimated_diar_seconds * max(0, queue_depth - 3)  # Jobs beyond current 3 slots
+                    total_time = estimated_diar_seconds + queue_wait + 120  # 2min buffer
+                    timeout_seconds = max(30.0, min(3600.0, total_time))  # 60min max for very long queues
+                    
+                    logger.info(f"Queue-aware timeout: {duration_seconds/60:.1f}min audio → "
+                               f"{estimated_diar_seconds:.1f}s processing + "
+                               f"{queue_wait:.1f}s queue ({queue_depth} jobs) = {timeout_seconds:.1f}s total")
+                    
+                    return int(timeout_seconds * 10)
+                
+                timeout_iterations = calculate_queue_aware_timeout(total_duration, queue_depth)
+            else:
+                timeout_iterations = calculate_diarization_timeout(total_duration)
+                
+        except Exception as e:
+            logger.warning(f"Could not get queue depth, using default timeout: {e}")
+            timeout_iterations = calculate_diarization_timeout(total_duration)
         logger.info(f"Waiting for diarization (timeout: {timeout_iterations/10:.1f}s for {total_duration:.1f}s audio)")
         
         diar_json = await load_diar_segments(self.redis_queue.redis, job_id)
@@ -386,20 +533,54 @@ class ChunkWorker:
 
         # Align segments if diarization is available; else proceed with single-speaker
         if diar_json and diar_json.get('segments'):
-            # Build ASR segments from chunk results
-            asr_segments = []
-            for c in chunk_results:
-                if c.text:
-                    asr_segments.append({
-                        'start_time': c.start_time,
-                        'end_time': c.end_time,
-                        'text': c.text,
-                    })
+            # Check if we have word-level timestamps available
+            has_word_timestamps = any(
+                chunk_result.word_timestamps for chunk_result in chunk_results
+            )
             
-            logger.info(f"Aligning {len(asr_segments)} ASR segments with {len(diar_json['segments'])} diarization segments")
-            logger.debug(f"Diarization speakers: {set(s['speaker'] for s in diar_json['segments'])}")
+            if has_word_timestamps:
+                # Use word-level alignment for precise speaker attribution
+                logger.info("Using word-level alignment for precise speaker attribution")
+                
+                # Collect all word timestamps from all chunks
+                all_word_timestamps = []
+                for chunk_result in chunk_results:
+                    word_timestamps = chunk_result.word_timestamps
+                    
+                    if word_timestamps:
+                        # Filter out any None entries and validate structure
+                        valid_words = [
+                            word for word in word_timestamps
+                            if word and isinstance(word, dict) and 
+                               'word' in word and 'start' in word and 'end' in word
+                        ]
+                        all_word_timestamps.extend(valid_words)
+                
+                if all_word_timestamps:
+                    logger.info(f"Aligning {len(all_word_timestamps)} words with {len(diar_json['segments'])} diarization segments")
+                    speaker_blocks, num_speakers = align_words_to_speakers(all_word_timestamps, diar_json['segments'])
+                else:
+                    logger.warning("No valid word timestamps found, falling back to segment-level alignment")
+                    has_word_timestamps = False
             
-            speaker_blocks, num_speakers = align_sentence_segments(asr_segments, diar_json['segments'])
+            if not has_word_timestamps:
+                # Fallback to segment-level alignment (legacy approach)
+                logger.info("Using segment-level alignment (word timestamps not available)")
+                
+                # Build ASR segments from chunk results
+                asr_segments = []
+                for c in chunk_results:
+                    if c.text:
+                        asr_segments.append({
+                            'start_time': c.start_time,
+                            'end_time': c.end_time,
+                            'text': c.text,
+                        })
+                
+                logger.info(f"Aligning {len(asr_segments)} ASR segments with {len(diar_json['segments'])} diarization segments")
+                logger.debug(f"Diarization speakers: {set(s['speaker'] for s in diar_json['segments'])}")
+                
+                speaker_blocks, num_speakers = align_sentence_segments(asr_segments, diar_json['segments'])
             
             logger.info(f"Alignment produced {len(speaker_blocks)} speaker blocks with {num_speakers} unique speakers")
             logger.debug(f"Speaker blocks: {[(b['speaker'], b['start'], b['end']) for b in speaker_blocks[:5]]}")

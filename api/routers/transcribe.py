@@ -158,7 +158,8 @@ async def get_transcription_status(
             processing_time=result.processingTime or 0,
             chunks=result.chunks or 1,
             confidence=result.confidence,
-            audio_quality=result.audioQuality
+            audio_quality=result.audioQuality,
+            diarization=result.diarization
         )
         
         return StatusResponse(

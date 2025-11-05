@@ -27,6 +27,8 @@ class TranscriptionResponse(BaseModel):
     chunks: Optional[int] = None
     confidence: Optional[float] = None
     audio_quality: Optional[Dict] = None
+    # Diarization fields
+    diarization: Optional[Dict] = None
     # Intelligence fields
     quick_intelligence: Optional[QuickIntelligence] = None
     enhanced_intelligence_status: Optional[EnhancedIntelligenceStatus] = None

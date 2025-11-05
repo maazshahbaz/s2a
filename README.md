@@ -16,6 +16,15 @@ A high-performance ASR (Automatic Speech Recognition) microservice built with NV
 - **GPU Memory Management**: Intelligent memory allocation and cleanup
 - **Mixed Precision Support**: FP16/BF16 for faster inference
 
+### Speaker Diarization
+- **Multi-Speaker Detection**: Automatically identifies and separates different speakers
+- **NVIDIA Sortformer Model**: Uses `nvidia/diar_sortformer_4spk-v1` for accurate speaker attribution
+- **Two-Tier Strategy**: 
+  - Single-chunk (≤10 min): Built-in speaker tracking
+  - Multi-chunk (>10 min): TitaNet embeddings for cross-chunk speaker re-identification
+- **Speaker Attribution**: Word-level alignment with precise speaker timestamps
+- **Natural Conversation Flow**: Groups consecutive speech by speaker to avoid artificial round-robin patterns
+
 ### Audio Preprocessing
 - **Format Support**: WAV, MP3, FLAC, M4A, OGG
 - **Audio Enhancement**: Noise reduction, filtering, normalization
@@ -251,6 +260,38 @@ curl "https://bytepulseai.com/v1/transcribe/status/{job_id}" \
 curl "https://bytepulseai.com/v1/statistics/health"
 ```
 
+### Diarization Example
+**Speaker Attribution with Multi-Speaker Detection**
+
+```bash
+# Submit audio with diarization (enabled by default)
+curl -X POST "https://bytepulseai.com/v1/transcribe" \
+  -H "Authorization: Bearer bp-proj-YOUR_API_KEY" \
+  -H "Content-Type: multipart/form-data" \
+  -F "audio_file=@meeting_with_multiple_speakers.mp3" \
+  -F "callback_url=https://your-app.com/webhook"
+
+# Webhook response includes speaker-attributed transcript:
+{
+  "job_id": "job-123456",
+  "status": "completed",
+  "transcription": {
+    "text": "Full meeting transcript...",
+    "diarization": {
+      "speakerTranscript": [
+        {"speaker": "SPK_1", "start": 0.5, "end": 15.2, "text": "Welcome everyone..."},
+        {"speaker": "SPK_2", "start": 16.0, "end": 32.8, "text": "Let's review the Q3 results..."},
+        {"speaker": "SPK_2", "start": 33.5, "end": 48.1, "text": "I agree with those numbers..."}
+      ],
+      "numSpeakers": 2,
+      "diarModel": "nvidia/diar_sortformer_4spk-v1",
+      "diarizationStatus": "completed",
+      "audioDuration": 192.7
+    }
+  }
+}
+```
+
 ## CLI Usage
 
 The CLI provides a convenient interface for local transcription:
@@ -275,6 +316,31 @@ python cli.py api-transcribe audio.wav --url https://bytepulseai.com --api-key b
 python cli.py status --url https://bytepulseai.com --api-key bp-proj-YOUR_API_KEY
 ```
 
+## Validation & Testing
+
+### End-to-End Validation
+The validation suite tests both ASR and diarization with real audio files:
+
+```bash
+# Run comprehensive validation tests
+python tests/test_validation.py
+
+# Tests include:
+# - Model loading (NeMo Parakeet + Sortformer)
+# - Duration-based routing rules
+# - Single-chunk vs multi-chunk strategies
+# - Speaker attribution accuracy
+# - Performance benchmarks
+```
+
+### Test Coverage
+- **Audio Duration Validation**: 40s, 3.21min, 33.47min test files
+- **Diarization Strategy**: 
+  - Single-chunk (≤10 min): Built-in speaker tracking
+  - Multi-chunk (>10 min): TitaNet cross-chunk re-identification
+- **Speaker Attribution**: Natural conversation flow validation
+- **Performance**: RTF < 0.1, 200x real-time processing
+
 ## Configuration
 
 ### Environment Variables
@@ -290,6 +356,10 @@ python cli.py status --url https://bytepulseai.com --api-key bp-proj-YOUR_API_KE
 | `S2A_NUM_WORKERS` | `2` | Number of worker processes |
 | `S2A_LOG_LEVEL` | `INFO` | Logging level |
 | `S2A_ENABLE_MIXED_PRECISION` | `true` | Enable mixed precision inference |
+| `DIAR_MODEL_NAME` | `nvidia/diar_sortformer_4spk-v1` | Diarization model name |
+| `DIAR_MAX_SPEAKERS` | `4` | Maximum number of speakers |
+| `DIAR_CHUNK_DURATION` | `600` | Diarization chunk duration (seconds) |
+| `DIAR_DEVICE` | `cuda` | Diarization processing device |
 | `API_KEY_SECRET` | `change-me` | Secret for API key HMAC signing |
 | `API_KEYS_FILE` | `./api_keys.json` | Path to API keys storage file |
 
@@ -306,26 +376,37 @@ nano .env
 ### Core Components
 
 1. **ASR Service** (`asr_service.py`)
-   - NeMo model integration
+   - NeMo Parakeet model integration
    - Batch processing coordination
    - Performance monitoring
 
-2. **Audio Processing** (`audio_utils.py`)
+2. **Diarization Service** (`diarization_service.py`)
+   - NVIDIA Sortformer model integration
+   - Two-tier strategy (single/multi-chunk)
+   - TitaNet cross-chunk speaker re-identification
+   - Word-level alignment with ASR output
+
+3. **Audio Processing** (`audio_utils.py`)
    - Format conversion and normalization
    - Enhancement algorithms
    - Quality validation
 
-3. **Batch Processor** (`batch_processor.py`)
+4. **Batch Processor** (`batch_processor.py`)
    - Dynamic GPU memory management
    - Intelligent job queuing
    - Concurrent processing
 
-4. **Chunking Manager** (`chunking_utils.py`)
+5. **Alignment Service** (`alignment_service.py`)
+   - ASR-to-diarization segment alignment
+   - Speaker attribution for transcribed text
+   - Natural conversation flow preservation
+
+6. **Chunking Manager** (`chunking_utils.py`)
    - Speech-aware segmentation
    - Overlap management
    - Intelligent stitching
 
-5. **Performance Monitor** (`performance_monitor.py`)
+7. **Performance Monitor** (`performance_monitor.py`)
    - Real-time metrics collection
    - Prometheus integration
    - Alert system
@@ -336,8 +417,14 @@ nano .env
 Audio Input → Preprocessing → Chunking → Batch Processing → Transcription → Stitching → Output
      ↓              ↓            ↓            ↓              ↓            ↓         ↓
   Validation   Enhancement   VAD Split    GPU Queue     NeMo Model   Overlap    Result
-     ↓              ↓            ↓            ↓              ↓        Removal       ↓
+     ↓              ↓            ↓            ↓              ↓            ↓         ↓
 Format Check   Noise Filter  Boundaries   Memory Mgmt   Inference   Text Join   Webhook
+
+Parallel Diarization Flow:
+Audio → Diarization → Sortformer → Segments → Alignment → Speaker Attribution → Final Output
+   ↓         ↓            ↓          ↓          ↓              ↓                ↓
+ Original  Single/Multi   Speaker    Word-level  Natural       Speaker-       Enhanced
+  Audio     Chunk        ID         Mapping    Conversation  Attributed     Transcript
 ```
 
 ## Performance Benchmarks

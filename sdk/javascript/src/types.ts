@@ -62,19 +62,36 @@ export interface ConversationMetrics {
   paceRating?: string;
 }
 
+// Diarization types
+export interface SpeakerSegment {
+  speaker: string; // e.g., "SPK_1", "SPK_2"
+  start: number;  // Start time in seconds
+  end: number;    // End time in seconds
+  text: string;   // Transcribed text for this segment
+}
+
+export interface DiarizationResult {
+  speakerTranscript: SpeakerSegment[];
+  numSpeakers: number;
+  diarModel: string;  // Model used for diarization
+  diarizationStatus: string;  // "completed", "failed", etc.
+  audioDuration: number;  // Total audio duration in seconds
+}
+
 // Result types
 export interface TranscriptionResult {
   jobId: string;
   status: string;
   text: string;
   duration: number;
-  rtf: number ;
-  processingTime: number ;
+  rtf: number;
+  processingTime: number;
   chunks: number;
-  confidence: number ;
-  audioQuality?: Record<string, any> ;
+  confidence: number;
+  audioQuality?: Record<string, any>;
   quickIntelligence?: QuickIntelligenceResult | null;
   enhancedIntelligenceStatus?: IntelligenceResult | null;
+  diarization?: DiarizationResult | null;
 }
 
 export interface QuickIntelligenceResult {

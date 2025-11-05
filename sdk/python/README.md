@@ -46,6 +46,25 @@ if result.enhanced_intelligence:
     print(f"Summary: {result.enhanced_intelligence.summary}")
     print(f"Intent: {result.enhanced_intelligence.intent}")
     print(f"Action Items: {len(result.enhanced_intelligence.action_items)}")
+
+# Access diarization results (speaker attribution)
+if result.transcription.diarization:
+    diar = result.transcription.diarization
+    print(f"Speakers detected: {diar.num_speakers}")
+    print(f"Speaker turns: {len(diar.speaker_transcript)}")
+    
+    # Display speaker-attributed transcript
+    for i, segment in enumerate(diar.speaker_transcript):
+        print(f"{segment.speaker}: {segment.text}")
+    
+    # Get speaking time per speaker
+    for speaker in diar.speakers:
+        total_time = diar.get_speaker_total_time(speaker)
+        print(f"{speaker} spoke for {total_time:.1f} seconds")
+    
+    # Get segments for specific speaker
+    spk1_segments = diar.get_segments_for_speaker("SPK_1")
+    print(f"SPK_1 has {len(spk1_segments)} segments")
 ```
 
 ## 🎯 Key Features

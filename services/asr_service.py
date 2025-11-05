@@ -226,8 +226,18 @@ class NeMoASRService:
                 
                 start_time = time.time()
                 
-                # NeMo batch transcription
-                transcriptions = self.model.transcribe(batch_files)
+                # NeMo batch transcription with word timestamps (Parakeet supports timestamps=True)
+                try:
+                    transcriptions = self.model.transcribe(batch_files, timestamps=True)
+                    timestamps_supported = True
+                    logger.info("Parakeet word-level timestamps enabled")
+                except TypeError as e:
+                    if "timestamps" in str(e):
+                        logger.warning(f"Model does not support timestamps, falling back to basic transcription: {e}")
+                        transcriptions = self.model.transcribe(batch_files)
+                        timestamps_supported = False
+                    else:
+                        raise
                 
                 processing_time = time.time() - start_time
                 
@@ -235,13 +245,70 @@ class NeMoASRService:
                 for j, (transcription, chunk) in enumerate(zip(transcriptions, batch_chunks)):
                     rtf = processing_time / (chunk.duration * len(batch_chunks))
                     
-                    # Convert NeMo Hypothesis to text
-                    if hasattr(transcription, 'text'):
-                        text = transcription.text
-                    elif isinstance(transcription, str):
-                        text = transcription
+                    # Convert NeMo Hypothesis to text and extract word timestamps
+                    text = ""
+                    word_timestamps = []
+                    
+                    # Debug: Log what we got from the model
+                    logger.debug(f"Transcription type: {type(transcription)}, dir: {dir(transcription)[:10]}")
+                    
+                    # Enhanced debug for Parakeet timestamp structure
+                    if timestamps_supported and hasattr(transcription, 'timestamp'):
+                        logger.info(f"Parakeet timestamp structure: type={type(transcription.timestamp)}")
+                        if isinstance(transcription.timestamp, dict):
+                            logger.info(f"Parakeet timestamp keys: {list(transcription.timestamp.keys())}")
+                            for key, value in transcription.timestamp.items():
+                                logger.info(f"  {key}: type={type(value)}, len={len(value) if hasattr(value, '__len__') else 'N/A'}")
+                                if key == 'word' and len(value) > 0:
+                                    logger.info(f"    Sample word entry: {value[0]}")
+                    
+                    if timestamps_supported:
+                        # Parakeet TDT model with timestamps
+                        try:
+                            # Parakeet format: output[0].timestamp['word']
+                            if hasattr(transcription, 'timestamp') and transcription.timestamp:
+                                if 'word' in transcription.timestamp:
+                                    word_data = transcription.timestamp['word']
+                                    text = " ".join([w['word'] for w in word_data])
+                                    
+                                    # Extract word timestamps with global time adjustment
+                                    for k, word_info in enumerate(word_data):
+                                        global_start = chunk.start_time + word_info['start']
+                                        global_end = chunk.start_time + word_info['end']
+                                        
+                                        word_timestamps.append({
+                                            'word': word_info['word'],
+                                            'start': global_start,
+                                            'end': global_end,
+                                            'word_index': k
+                                        })
+                                    logger.debug(f"Extracted {len(word_timestamps)} word timestamps from Parakeet")
+                                else:
+                                    # Fallback to segment timestamps if word not available
+                                    if 'segment' in transcription.timestamp:
+                                        logger.warning("Parakeet only has segment timestamps, using text-only")
+                                        text = transcription.text if hasattr(transcription, 'text') else str(transcription)
+                            elif hasattr(transcription, 'text'):
+                                # Model supports timestamps but didn't return them
+                                text = transcription.text
+                                logger.debug("Timestamps supported but not returned, using text-only")
+                            else:
+                                # Fallback to string conversion
+                                text = str(transcription)
+                                logger.debug("Using string conversion for transcription")
+                        except Exception as e:
+                            logger.warning(f"Error extracting Parakeet timestamps: {e}")
+                            text = transcription.text if hasattr(transcription, 'text') else str(transcription)
                     else:
-                        text = str(transcription)
+                        # Fallback for models without timestamp support
+                        if hasattr(transcription, 'text'):
+                            text = transcription.text
+                        elif isinstance(transcription, str):
+                            text = transcription
+                        else:
+                            text = str(transcription)
+                    
+                    logger.debug(f"Final text for chunk {j}: '{text.strip()}'")
                     
                     results.append({
                         "text": text.strip(),
@@ -250,7 +317,8 @@ class NeMoASRService:
                         "processing_time": processing_time / len(batch_chunks),
                         "chunk_index": i + j,
                         "start_time": chunk.start_time,
-                        "end_time": chunk.end_time
+                        "end_time": chunk.end_time,
+                        "word_timestamps": word_timestamps if word_timestamps else None
                     })
                 
                 logger.info(f"Processed NeMo batch of {len(batch_chunks)} chunks, RTF: {rtf:.3f}")
@@ -265,6 +333,9 @@ class NeMoASRService:
                     "rtf": float('inf'),
                     "processing_time": 0,
                     "chunk_index": i,
+                    "start_time": chunk.start_time,
+                    "end_time": chunk.end_time,
+                    "word_timestamps": None,
                     "error": str(e)
                 })
         
