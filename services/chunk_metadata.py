@@ -59,6 +59,7 @@ class ChunkResult:
     rtf: float
     overlap_start: float = 0
     overlap_end: float = 0
+    word_timestamps: Optional[list] = None  # List of {'word': str, 'start': float, 'end': float, 'word_index': int}
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))

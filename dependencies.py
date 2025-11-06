@@ -4,6 +4,8 @@ from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
 from generated.prisma import Prisma
+from services.diarization_service import DiarizationService, store_diar_segments
+from config import get_diarization_settings
 
 
 # Dependency to get services
@@ -44,7 +46,33 @@ async def process_audio_background_db(
         # Job is processing asynchronously - webhook will be sent when complete
         if result and result.get('status') == 'queued':
             logger.info(f"Job {job_id} submitted to Redis queue: {result.get('num_chunks')} chunks")
-            return  # Exit early, webhook handles the rest
+            # Launch diarization in the background (mandatory)
+            async def _run_diar():
+                try:
+                    diar_cfg = get_diarization_settings()
+                    diar = DiarizationService(model_name=diar_cfg.model_name, max_speakers=diar_cfg.max_speakers)
+                    
+                    logger.info(f"Starting diarization for job {job_id}")
+                    segments = await diar.run(audio_path, max_speakers=diar_cfg.max_speakers)
+                    num_spk = len(sorted({s.speaker for s in segments}))
+                    
+                    await store_diar_segments(batch_proc.redis_client, job_id, segments, num_spk)
+                    logger.info(f"Diarization completed for job {job_id}: {len(segments)} segments, {num_spk} speakers")
+                    
+                except Exception as e:
+                    logger.error(f"Diarization failed for job {job_id}: {e}")
+                    # Store failure status in Redis so chunk_worker knows it failed
+                    try:
+                        await batch_proc.redis_client.set(
+                            f"diar:{job_id}:status",
+                            "failed",
+                            ex=3600  # Expire after 1 hour
+                        )
+                    except Exception:
+                        pass
+            
+            asyncio.create_task(_run_diar())
+            return  # Exit early; completion orchestrated after stitching+diar
 
         # For failed submissions, send error webhook
         if not result or result.get('status') == 'failed':

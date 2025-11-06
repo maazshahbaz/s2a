@@ -108,9 +108,11 @@ class TranscriptionResult:
     confidence: float
     processing_time: float
     rtf: float  # Real-time factor
-    status:str
+    status: str
     chunks: int = 1
     audio_quality: Optional[Dict[str, Any]] = None
+    # Diarization field
+    diarization: Optional[DiarizationResult] = None
 
 
 @dataclass
@@ -279,3 +281,48 @@ class TimeoutError(S2AError):
 class IntelligenceUnavailableError(S2AError):
     """Intelligence service is not available"""
     pass
+
+
+# Diarization Models
+@dataclass
+class SpeakerSegment:
+    """Represents a single speaker segment in diarization"""
+    speaker: str  # e.g., "SPK_1", "SPK_2"
+    start: float  # Start time in seconds
+    end: float    # End time in seconds
+    text: str     # Transcribed text for this segment
+
+
+@dataclass
+class DiarizationResult:
+    """Complete diarization results with speaker attribution"""
+    speaker_transcript: List[SpeakerSegment]
+    num_speakers: int
+    diar_model: str  # Model used for diarization
+    diarization_status: str  # "completed", "failed", etc.
+    audio_duration: float  # Total audio duration in seconds
+    
+    @property
+    def speakers(self) -> List[str]:
+        """Get list of unique speakers"""
+        return list(set(segment.speaker for segment in self.speaker_transcript))
+    
+    @property
+    def speaker_turns(self) -> int:
+        """Count number of speaker turns"""
+        if not self.speaker_transcript:
+            return 0
+        turns = 1
+        for i in range(1, len(self.speaker_transcript)):
+            if self.speaker_transcript[i].speaker != self.speaker_transcript[i-1].speaker:
+                turns += 1
+        return turns
+    
+    def get_segments_for_speaker(self, speaker: str) -> List[SpeakerSegment]:
+        """Get all segments for a specific speaker"""
+        return [seg for seg in self.speaker_transcript if seg.speaker == speaker]
+    
+    def get_speaker_total_time(self, speaker: str) -> float:
+        """Get total speaking time for a specific speaker in seconds"""
+        segments = self.get_segments_for_speaker(speaker)
+        return sum(seg.end - seg.start for seg in segments)

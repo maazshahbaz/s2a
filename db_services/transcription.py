@@ -100,7 +100,8 @@ class TranscriptionJobService:
         rtf: Optional[float] = None,
         processing_time: Optional[float] = None,
         chunks: Optional[int] = None,
-        audio_quality: Optional[Dict[str, Any]] = None
+        audio_quality: Optional[Dict[str, Any]] = None,
+        diarization: Optional[Dict[str, Any]] = None
     ) -> TranscriptionResult:
         """Save transcription result"""
         # Build data dict, excluding None values for optional fields
@@ -118,12 +119,20 @@ class TranscriptionJobService:
             data['processingTime'] = processing_time
         if chunks is not None:
             data['chunks'] = chunks
+        if diarization is not None:
+            try:
+                # Use Prisma Json wrapper
+                sanitized_diarization = sanitize_json_data(diarization)
+                data['diarization'] = Json(sanitized_diarization)
+                logger.info(f"Prepared diarization data with Json wrapper")
+            except Exception as e:
+                logger.warning(f"Failed to process diarization data: {e}, skipping")
         if audio_quality is not None:
             try:
                 # Use Prisma Json wrapper
                 sanitized_quality = sanitize_json_data(audio_quality)
                 data['audioQuality'] = Json(sanitized_quality)
-                logger.info(f"Prepared audio quality data with Json wrapper: {sanitized_quality}")
+                logger.info(f"Prepared audio quality data with Json wrapper")
             except Exception as e:
                 logger.warning(f"Failed to process audio quality data: {e}, skipping")
             

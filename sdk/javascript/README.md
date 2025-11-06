@@ -43,6 +43,24 @@ console.log(`Job ID: ${job.jobId}`);
 const result = await client.waitForCompletion(job.jobId);
 console.log(`Transcript: ${result.transcription.text}`);
 
+// Access diarization results (speaker attribution)
+if (result.transcription.diarization) {
+  const diar = result.transcription.diarization;
+  console.log(`Speakers detected: ${diar.numSpeakers}`);
+  console.log(`Speaker turns: ${diar.speakerTranscript.length}`);
+  
+  // Display speaker-attributed transcript
+  diar.speakerTranscript.forEach((segment, index) => {
+    console.log(`${segment.speaker}: ${segment.text}`);
+  });
+  
+  // Get speaking time per speaker
+  diar.speakerTranscript.forEach(segment => {
+    const duration = segment.end - segment.start;
+    console.log(`${segment.speaker}: ${duration.toFixed(1)}s`);
+  });
+}
+
 ## 🎯 Key Features
 
 ### **Multi-Stage Intelligence Extraction**
