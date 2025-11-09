@@ -54,10 +54,12 @@ class BatchProcessor:
         self,
         asr_service,
         db,
+        triton_service,
         config: BatchProcessorConfig = None
     ):
         self.db=db
         self.asr_service = asr_service
+        self.triton_service=triton_service
         self.config = config or BatchProcessorConfig()
 
         # Redis connection
@@ -102,6 +104,7 @@ class BatchProcessor:
         for i in range(self.config.num_workers):
             worker = ChunkWorker(
                 db=self.db,
+                triton_service=self.triton_service,
                 worker_id=f"worker_{i}",
                 asr_service=self.asr_service,
                 redis_queue=self.redis_queue,
@@ -154,6 +157,7 @@ class BatchProcessor:
         self,
         job_id: str,
         audio_path: str,
+        include_intelligence: bool = False,
         callback_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -183,6 +187,7 @@ class BatchProcessor:
                 sample_rate=16000,  # Will be verified when loading
                 max_chunk_duration=self.config.max_chunk_duration,
                 overlap_duration=self.config.overlap_duration,
+                include_intelligence=include_intelligence,
                 callback_url=callback_url
             )
 

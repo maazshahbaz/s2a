@@ -11,6 +11,7 @@ from config import get_settings, get_redis_settings
 from api.routers import all_routers
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
+from client_triton import TritonClient
 
 prisma = Prisma()
 
@@ -30,6 +31,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing authentication service...")
     initialize_auth_store(prisma)
     logger.info("Authentication service initialized ✅")
+
+    logger.info("Initializing Triton Inference Service...")
+
+    try:
+        app.state.triton_service = TritonService()
+    except Exception as e:
+        logger.error(f"Failed to initialize TritonService: {e}")
+        app.state.triton_service = None
     
     logger.info("Initializing ASR microservice...")
     
@@ -63,6 +72,7 @@ async def lifespan(app: FastAPI):
     app.state.batch_processor = BatchProcessor(
         asr_service=app.state.asr_service,
         db=app.state.db,
+        triton_service=app.state.triton_service,
         config=batch_config
     )
     
@@ -78,6 +88,10 @@ async def lifespan(app: FastAPI):
 
     if app.state.batch_processor:
         await app.state.batch_processor.stop()
+        
+    if hasattr(app.state, "triton_service"):
+        app.state.triton_service = None
+        logger.info("Triton service released ✅")
     
     logger.info("Disconnecting database...")
     await prisma.disconnect()
