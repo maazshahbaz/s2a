@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+triton-server:
+    build:
+      context: .
+      dockerfile: ./triton-service/dockerfile
+    image: triton-service:latest
+    container_name: triton-service
+    
+    # Load environment variables from .env file into running container
+    env_file:
+      - ./triton-service/.env
+
+    # GPU configuration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Shared memory and limits
+    shm_size: '4gb'
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    # Port mappings
+    ports:
+      - "2000:2000"  # HTTP
+      - "2001:2001"  # gRPC
+      - "2002:2002"  # Metrics
+
+    # Volume mappings
+    volumes:
+      - ./triton-service/model_repository:/models
+      - ./triton-service/model-cache:/models/.cache
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2000/v2/health/ready"]
+      interval: 300s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    networks:
+      - triton-network
+
+  triton-network
+    driver: bridge
+
+volumes:
+  ./triton-service/model-cache:
+    driver: local
+
