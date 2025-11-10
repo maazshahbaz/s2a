@@ -90,6 +90,7 @@ class ChunkWorker:
     def __init__(
         self,
         db,
+        triton_service,
         worker_id: str,
         asr_service,
         redis_queue: RedisQueueManager,
@@ -98,6 +99,7 @@ class ChunkWorker:
         executor: Optional[ThreadPoolExecutor] = None
     ):
         self.db=db
+        self.triton_service=triton_service
         self.worker_id = worker_id
         self.asr_service = asr_service
         self.redis_queue = redis_queue
@@ -278,6 +280,7 @@ class ChunkWorker:
                 rtf=rtf,
                 overlap_start=chunk.overlap_start,
                 overlap_end=chunk.overlap_end,
+                include_intelligence=chunk.include_intelligence,
                 word_timestamps=transcription.get('word_timestamps')  # Add word timestamps
             )
 
@@ -399,6 +402,33 @@ class ChunkWorker:
 
         try:
             final_text = await stitching_service.stitch_transcriptions(chunk_results, remove_overlap=True)
+            # ✅ Check if this job requires intelligence analysis
+            include_intelligence = any(
+                getattr(c, "include_intelligence", False) for c in chunk_results
+            )
+
+            intelligence_result = None
+
+            if include_intelligence:
+                logger.info(f"Job {job_id}: Intelligence flag detected — running analysis via Triton")
+
+                try:
+                    intelligence_result = self.triton_service.analyze(
+                        transcription=final_text,
+                        max_tokens=512,
+                        temperature=0.3,
+                        top_p=0.9
+                    )
+
+                    if intelligence_result and "error" not in intelligence_result:
+                        logger.info(f"Job {job_id}: Intelligence analysis successful.")
+                    else:
+                        logger.warning(f"Job {job_id}: Intelligence analysis returned error or empty result.")
+
+                except Exception as e:
+                    logger.exception(f"Job {job_id}: Intelligence processing failed: {e}")
+                    intelligence_result = {"error": str(e)}
+
         except Exception as e:
             logger.exception(f"Stitching failed for job {job_id}: {e}")
             await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
@@ -613,6 +643,7 @@ class ChunkWorker:
             total_processing_time,
             len(chunk_results),
             diarization=diarization_data,  # Diarization data in dedicated field
+            intelligence=intelligence_result
         )
 
         # Get job metadata for webhook
@@ -639,6 +670,7 @@ class ChunkWorker:
                     'chunks_processed': len(chunk_results),
                     'confidence': overall_confidence,
                     'diarization': diarization_data,
+                    'intelligence': intelligence_result
                 }
 
                 # Send webhook

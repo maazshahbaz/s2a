@@ -28,6 +28,7 @@ class ChunkGenerator:
         sample_rate: int = 16000,
         max_chunk_duration: float = 1440.0,  # 24 minutes (NVIDIA Parakeet limit)
         overlap_duration: float = 5.0,  # 5 seconds overlap
+        include_intelligence: bool = False,
         callback_url: str = None
     ) -> List[ChunkMetadata]:
         """
@@ -61,7 +62,8 @@ class ChunkGenerator:
                 sample_rate=sample_rate,
                 callback_url=callback_url,
                 overlap_start=0,
-                overlap_end=0
+                overlap_end=0,
+                include_intelligence=include_intelligence
             )
             chunks.append(chunk)
 
@@ -111,7 +113,8 @@ class ChunkGenerator:
                     sample_rate=sample_rate,
                     callback_url=callback_url,
                     overlap_start=overlap_start,
-                    overlap_end=overlap_end
+                    overlap_end=overlap_end,
+                    include_intelligence=include_intelligence
                 )
                 chunks.append(chunk)
 

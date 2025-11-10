@@ -27,6 +27,7 @@ class ChunkMetadata:
     created_at: float = None
     overlap_start: float = 0  # Overlap at start (seconds) - for stitching
     overlap_end: float = 0  # Overlap at end (seconds) - for stitching
+    include_intelligence: bool = False
 
     def __post_init__(self):
         if self.created_at is None:
@@ -59,6 +60,7 @@ class ChunkResult:
     rtf: float
     overlap_start: float = 0
     overlap_end: float = 0
+    include_intelligence: bool = False
     word_timestamps: Optional[list] = None  # List of {'word': str, 'start': float, 'end': float, 'word_index': int}
 
     def to_json(self) -> str:

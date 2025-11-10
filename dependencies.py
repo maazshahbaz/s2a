@@ -40,7 +40,8 @@ async def process_audio_background_db(
         result = await batch_proc.submit_job(
             job_id=job_id,
             audio_path=audio_path,
-            callback_url=callback_url
+            include_intelligence=include_intelligence,
+            callback_url=callback_url,
         )
 
         # Job is processing asynchronously - webhook will be sent when complete

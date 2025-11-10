@@ -67,6 +67,7 @@ model TranscriptionResult {
   processingTime Float?   @map("processing_time") // in seconds
   chunks         Int?     @default(1)
   diarization    Json?    // Diarization data: speakerTranscript, numSpeakers, diarizationStatus, etc.
+  intelligence   Json?
   audioQuality   Json?    @map("audio_quality") // Audio quality metrics (SNR, noise level, etc.)
   createdAt      DateTime @default(now()) @map("created_at")
 
