@@ -31,16 +31,35 @@ const client = new S2AClient({
   apiKey: 'bp-proj-your-api-key'
 });
 
-// Simple transcription
-const result = await client.transcribe('meeting.mp3');
-console.log(`Transcript: ${result.text}`);
+// Async transcription (for audio > 2 minutes or up to 2 hours)
+const job = await client.transcribeAsync('meeting.mp3', {
+  callbackUrl: 'https://yourapp.com/webhook',
+  enhanceAudio: true
+});
 
-// Transcription with business intelligence
-const result = await client.transcribeWithIntelligence('sales_call.wav');
-console.log(`Summary: ${result.enhancedIntelligence?.summary}`);
-console.log(`Intent: ${result.enhancedIntelligence?.intent}`);
-console.log(`Action Items: ${result.enhancedIntelligence?.actionItems.length}`);
-```
+console.log(`Job ID: ${job.jobId}`);
+
+// Wait for completion
+const result = await client.waitForCompletion(job.jobId);
+console.log(`Transcript: ${result.transcription.text}`);
+
+// Access diarization results (speaker attribution)
+if (result.transcription.diarization) {
+  const diar = result.transcription.diarization;
+  console.log(`Speakers detected: ${diar.numSpeakers}`);
+  console.log(`Speaker turns: ${diar.speakerTranscript.length}`);
+  
+  // Display speaker-attributed transcript
+  diar.speakerTranscript.forEach((segment, index) => {
+    console.log(`${segment.speaker}: ${segment.text}`);
+  });
+  
+  // Get speaking time per speaker
+  diar.speakerTranscript.forEach(segment => {
+    const duration = segment.end - segment.start;
+    console.log(`${segment.speaker}: ${duration.toFixed(1)}s`);
+  });
+}
 
 ## 🎯 Key Features
 
@@ -66,59 +85,45 @@ console.log(`Action Items: ${result.enhancedIntelligence?.actionItems.length}`);
 
 ### Core Methods
 
-#### `transcribe(audioFile, options?)`
-**Synchronous transcription (≤2 minutes)**
-```typescript
-const result = await client.transcribe('short_audio.wav', {
-  enhanceAudio: true,
-  removeSilence: false
-});
-
-console.log(`Text: ${result.text}`);
-console.log(`Duration: ${result.duration}s`);
-console.log(`Confidence: ${result.confidence}`);
-```
-
 #### `transcribeAsync(audioFile, options)`
-**Asynchronous transcription (≤2 hours)**
-```typescript
+**Asynchronous transcription (min 1 sec and max 5 hours)**
+```typescript```
+
 const job = await client.transcribeAsync('long_meeting.mp3', {
   callbackUrl: 'https://yourapp.com/webhook',
   priority: Priority.HIGH,
-  enhanceAudio: true
+  enhanceAudio: true,
+  removeSilence: false
 });
 
 console.log(`Job ID: ${job.jobId}`);
 
 // Wait for completion
-const result = await client.waitForCompletion(job.jobId, { timeout: 600000 });
-```
-
-#### `transcribeWithIntelligence(audioFile, options?)`
-**Combined transcription + intelligence**
-```typescript
-import { IntelligenceMode } from '@99technologies/s2a-sdk';
-
-const result = await client.transcribeWithIntelligence('sales_call.wav', {
-  mode: IntelligenceMode.SALES,
-  includeQuick: true
+const result = await client.waitForCompletion(job.jobId, { 
+  timeout: 600000,  // 10 minutes
+  pollInterval: 5000  // Check every 5 seconds
 });
 
-// Access transcription
 console.log(`Transcript: ${result.transcription.text}`);
 
-// Access quick intelligence (immediate)
-if (result.quickIntelligence) {
-  console.log(`Quick Summary: ${result.quickIntelligence.summary}`);
-}
+**Options**
+- **callbackUrl** *(required)*: URL to receive webhook notifications  
+- **priority**: `Priority.LOW`, `Priority.NORMAL` *(default)*, `Priority.HIGH`, `Priority.URGENT`  
+- **enhanceAudio**: Enable audio enhancement *(default: true)*  
+- **removeSilence**: Remove silence from audio *(default: false)*
 
-// Access enhanced intelligence (comprehensive)
-if (result.enhancedIntelligence) {
-  console.log(`Call Type: ${result.enhancedIntelligence.callType}`);
-  console.log(`Key People: ${result.enhancedIntelligence.people.map(p => p.name)}`);
-  console.log(`Action Items: ${result.enhancedIntelligence.actionItems.length}`);
-}
-```
+#### `transcribeAsyncWithIntelligence(audioFile, options)`
+**Asynchronous transcription with automatic intelligence extraction**
+
+const job = await client.transcribeAsyncWithIntelligence('sales_call.mp3', {
+  callbackUrl: 'https://yourapp.com/webhook',
+  mode: IntelligenceMode.SALES,
+  includeIntelligence: true,
+  priority: Priority.HIGH
+});
+
+// Intelligence will be included in webhook callback
+
 
 ### Intelligence-Only Methods
 
@@ -161,12 +166,18 @@ console.log(`Top Actions: ${quick.actionItems.map(item => item.task)}`);
 
 ### Sales Call Analysis
 ```typescript
-import { IntelligenceMode } from '@99technologies/s2a-sdk';
+import { IntelligenceMode, Priority } from '@99technologies/s2a-sdk';
 
 // Process sales call recording
-const result = await client.transcribeWithIntelligence('sales_demo.mp3', {
-  mode: IntelligenceMode.SALES
+const job = await client.transcribeAsyncWithIntelligence('sales_demo.mp3', {
+  callbackUrl: 'https://yourapp.com/webhook/sales',
+  mode: IntelligenceMode.SALES,
+  priority: Priority.HIGH,
+  includeIntelligence: true
 });
+
+// Wait for completion
+const result = await client.waitForCompletion(job.jobId);
 
 // Extract sales insights
 const intelligence = result.enhancedIntelligence;
@@ -174,6 +185,7 @@ if (intelligence?.opportunityInfo) {
   console.log(`Lead Quality Score: ${intelligence.opportunityInfo.close_probability}`);
   console.log(`Timeline: ${intelligence.opportunityInfo.timeline}`);
   console.log(`Decision Criteria: ${intelligence.opportunityInfo.decision_criteria}`);
+  console.log(`Budget: ${intelligence.opportunityInfo.budget}`);
 }
 
 // Financial discussion
@@ -181,36 +193,55 @@ const financial = intelligence?.financialInfo;
 if (financial?.budgetRange) {
   console.log(`Budget range: $${financial.budgetRange.min}-$${financial.budgetRange.max}`);
 }
+
+// Next steps
+intelligence?.actionItems.forEach(item => {
+  console.log(`Follow-up: ${item.task} (Due: ${item.dueDate})`);
+});
 ```
 
 ### Customer Support Analysis
 ```typescript
-const result = await client.transcribeWithIntelligence('support_call.mp3', {
+const job = await client.transcribeAsyncWithIntelligence('support_call.mp3', {
+  callbackUrl: 'https://yourapp.com/webhook/support',
   mode: IntelligenceMode.SUPPORT
 });
 
+const result = await client.waitForCompletion(job.jobId);
 const intelligence = result.enhancedIntelligence;
 
 // Issues identified
 intelligence?.issues.forEach(issue => {
-  console.log(`Issue: ${issue.description} (severity: ${issue.severity})`);
+  console.log(`Issue: ${issue.description}`);
+  console.log(`  Severity: ${issue.severity}`);
+  console.log(`  Category: ${issue.category}`);
   if (issue.workaround) {
     console.log(`  Workaround: ${issue.workaround}`);
   }
+  if (issue.resolution) {
+    console.log(`  Resolution: ${issue.resolution}`);
+  }
 });
+
+// Customer satisfaction metrics
+const metrics = intelligence?.conversationMetrics;
+console.log(`Customer talk time: ${metrics?.customerTalkTimePercent}%`);
+console.log(`Questions asked: ${metrics?.questionCount}`);
+console.log(`Interruptions: ${metrics?.interruptions}`);
 ```
 
 ### Async Processing with Webhooks
 ```typescript
 async function processMultipleFiles() {
   const files = ['meeting1.mp3', 'meeting2.mp3', 'meeting3.mp3'];
-  const jobs = [];
+  const jobs: AsyncJob[] = [];
 
   // Submit all jobs
   for (const file of files) {
     const job = await client.transcribeAsyncWithIntelligence(file, {
       callbackUrl: `https://yourapp.com/webhook/${file}`,
-      includeIntelligence: true
+      includeIntelligence: true,
+      mode: IntelligenceMode.AUTO_DETECT
     });
     jobs.push(job);
     console.log(`Submitted ${file}: ${job.jobId}`);
@@ -218,11 +249,44 @@ async function processMultipleFiles() {
 
   // Monitor completion
   for (const job of jobs) {
-    const result = await client.waitForCompletion(job.jobId);
-    console.log(`Completed ${job.jobId}`);
+    try {
+      const result = await client.waitForCompletion(job.jobId, {
+        timeout: 600000  // 10 minutes
+      });
+      console.log(`Completed ${job.jobId}`);
+      console.log(`Transcript length: ${result.transcription.text.length} chars`);
+    } catch (error) {
+      console.error(`Failed ${job.jobId}:`, error);
+    }
   }
 }
+
+processMultipleFiles();
 ```
+### Async Processing with Webhooks
+```typescript
+// If you already have a transcript from another source
+const existingTranscript = "Your existing transcript text here...";
+
+// Get quick insights
+const quick = await client.extractQuickIntelligence(existingTranscript);
+console.log(`Quick Summary: ${quick.summary}`);
+
+// Get comprehensive analysis
+const intelligence = await client.extractIntelligence(existingTranscript, {
+  mode: IntelligenceMode.SALES
+});
+
+console.log(`Call Type: ${intelligence.callType}`);
+console.log(`Intent: ${intelligence.intent}`);
+console.log(`Sentiment: ${intelligence.sentiment}`);
+
+// Export action items
+intelligence.actionItems.forEach(item => {
+  console.log(`- [ ] ${item.task} (@${item.assignee}) - ${item.priority}`);
+});
+```
+
 
 ### Error Handling
 ```typescript
@@ -230,28 +294,43 @@ import {
   AudioValidationError,
   RateLimitError,
   AuthenticationError,
-  TimeoutError
+  TimeoutError,
+  IntelligenceUnavailableError
 } from '@99technologies/s2a-sdk';
 
 try {
-  const result = await client.transcribe('large_file.mp3');
+  const job = await client.transcribeAsync('large_file.mp3', {
+    callbackUrl: 'https://yourapp.com/webhook'
+  });
+  
+  const result = await client.waitForCompletion(job.jobId);
+  console.log('Success:', result.transcription.text);
+  
 } catch (error) {
   if (error instanceof AudioValidationError) {
-    console.log(`Audio validation failed: ${error.message}`);
-    // File too large for sync API, use async instead
-    const job = await client.transcribeAsync('large_file.mp3', {
-      callbackUrl: 'https://yourapp.com/webhook'
-    });
+    console.error(`Audio validation failed: ${error.message}`);
+    // Check file format, size, or duration
+    
   } else if (error instanceof RateLimitError) {
-    console.log(`Rate limit exceeded. Retry after ${error.retryAfter} seconds`);
+    console.error(`Rate limit exceeded. Retry after ${error.retryAfter} seconds`);
     setTimeout(() => {
       // Retry logic here
     }, error.retryAfter * 1000);
+    
   } else if (error instanceof AuthenticationError) {
-    console.log(`Authentication failed: ${error.message}`);
+    console.error(`Authentication failed: ${error.message}`);
     // Check your API key
+    
   } else if (error instanceof TimeoutError) {
-    console.log(`Request timeout: ${error.message}`);
+    console.error(`Request timeout: ${error.message}`);
+    // Try with longer timeout or check job status manually
+    
+  } else if (error instanceof IntelligenceUnavailableError) {
+    console.error(`Intelligence service unavailable: ${error.message}`);
+    // Retry later or use transcription only
+    
+  } else {
+    console.error(`Unexpected error:`, error);
   }
 }
 ```
@@ -260,16 +339,30 @@ try {
 ```typescript
 // Validate audio before processing
 const validation = await client.validateAudio('meeting.mp3');
-console.log(`Duration: ${validation.duration}s`);
+
 console.log(`File size: ${validation.fileSize} bytes`);
 console.log(`Format: ${validation.format}`);
+console.log(`MIME type: ${validation.mimeType}`);
 
-if (validation.duration && validation.duration > 120) { // 2 minutes
-  console.log('File too long for sync API, using async...');
-  const job = await client.transcribeAsync('meeting.mp3', {
-    callbackUrl: 'https://yourapp.com/webhook'
-  });
+if (!validation.valid) {
+  console.error('Invalid audio file');
+  process.exit(1);
 }
+
+// Duration check (if available)
+if (validation.duration) {
+  if (validation.duration > 18000) {  // 5 hours
+    console.error('Audio exceeds 5 hour limit for async API');
+    process.exit(1);
+  }
+  
+  console.log(`Duration: ${Math.floor(validation.duration / 60)}m ${Math.floor(validation.duration % 60)}s`);
+}
+
+// Proceed with transcription
+const job = await client.transcribeAsync('meeting.mp3', {
+  callbackUrl: 'https://yourapp.com/webhook'
+});
 ```
 
 ## 🔧 Configuration
@@ -299,7 +392,8 @@ const client = new S2AClient({
 ### TranscriptionResult
 ```typescript
 interface TranscriptionResult {
-  jobId: string;
+  jobId: string;                   // Unique job identifier
+  status: string;                  // Job status
   text: string;                    // Transcribed text
   duration: number;                // Audio duration in seconds
   confidence: number;              // Transcription confidence (0-1)
@@ -307,6 +401,20 @@ interface TranscriptionResult {
   rtf: number;                     // Real-time factor
   chunks: number;                  // Number of audio chunks processed
   audioQuality?: Record<string, any>; // Audio quality metrics
+  quickIntelligence?: QuickIntelligenceResult | null;
+  enhancedIntelligenceStatus?: IntelligenceResult | null;
+}
+```
+### QuickIntelligenceResult
+```typescript
+interface QuickIntelligenceResult {
+  summary: string;                 // Brief conversation summary
+  intent: Intent;                  // Primary intent
+  sentiment: Sentiment;            // Overall sentiment
+  actionItems: ActionItem[];       // Extracted action items
+  keyEntities: string[];           // Key entities mentioned
+  confidenceScore: number;         // Extraction confidence (0-1)
+  processingTime: number;          // Processing time in seconds
 }
 ```
 
@@ -318,6 +426,7 @@ interface IntelligenceResult {
   intent: Intent;                  // Primary conversation intent
   sentiment: Sentiment;            // Overall sentiment
   summary: string;                 // Conversation summary
+  keyTopics: string[];             // Main topics discussed
 
   // Extracted entities
   people: Person[];                // People mentioned with roles, companies
@@ -330,14 +439,50 @@ interface IntelligenceResult {
   phones: string[];                // Phone numbers
   dates: string[];                 // Important dates
 
+  // Financial data
+  financialInfo: FinancialInfo;    // Budget, amounts, discounts
+
   // Business context
   opportunityInfo?: Record<string, any>; // Sales opportunity details
   issues: Record<string, any>[];   // Support issues identified
 
-  // Analysis
+  // Conversation analysis
   conversationMetrics: ConversationMetrics; // Talk time, interactions
-  recommendations: string[];        // AI recommendations
+
+  // Quality scores
   confidenceScore: number;         // Overall extraction confidence
+  completenessScore: number;       // Data completeness score
+
+  // AI recommendations
+  recommendations: string[];       // AI recommendations
+  riskFlags: string[];             // Potential risks identified
+}
+```
+
+### CompleteResult
+```typescript
+interface CompleteResult {
+  transcription: TranscriptionResult;
+  quickIntelligence?: QuickIntelligenceResult;
+  enhancedIntelligence?: IntelligenceResult;
+}
+```
+
+### AsyncJob
+```typescript
+interface AsyncJob {
+  jobId: string;                   // Unique job identifier
+  status: JobStatusType;           // Job status
+}
+```
+
+### JobStatus
+```typescript
+interface JobStatus {
+  jobId: string;
+  status: string;                  // 'pending', 'processing', 'completed', 'failed'
+  error?: string | null;           // Error message if failed
+  result?: TranscriptionResult | null; // Result if completed
 }
 ```
 
@@ -409,7 +554,7 @@ npm run format
 
 ## 📝 Changelog
 
-### Version 1.0.0
+### Version 1.0.4
 - Initial release
 - Complete transcription and intelligence features
 - Multi-stage intelligence extraction

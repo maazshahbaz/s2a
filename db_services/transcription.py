@@ -2,10 +2,9 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from generated.prisma import Prisma, Json
 from generated.prisma.models import TranscriptionJob, TranscriptionResult
-import uuid
 import os
-import json
 import math
+from pathlib import Path
 from loguru import logger
 
 
@@ -101,7 +100,9 @@ class TranscriptionJobService:
         rtf: Optional[float] = None,
         processing_time: Optional[float] = None,
         chunks: Optional[int] = None,
-        audio_quality: Optional[Dict[str, Any]] = None
+        audio_quality: Optional[Dict[str, Any]] = None,
+        diarization: Optional[Dict[str, Any]] = None,
+        intelligence: Optional[Dict[str, Any]] = None,
     ) -> TranscriptionResult:
         """Save transcription result"""
         # Build data dict, excluding None values for optional fields
@@ -119,12 +120,28 @@ class TranscriptionJobService:
             data['processingTime'] = processing_time
         if chunks is not None:
             data['chunks'] = chunks
+        if diarization is not None:
+            try:
+                # Use Prisma Json wrapper
+                sanitized_diarization = sanitize_json_data(diarization)
+                data['diarization'] = Json(sanitized_diarization)
+                logger.info(f"Prepared diarization data with Json wrapper")
+            except Exception as e:
+                logger.warning(f"Failed to process diarization data: {e}, skipping")
+        if intelligence is not None:
+            try:
+                # Use Prisma Json wrapper
+                sanitized_intelligence = sanitize_json_data(intelligence)
+                data['intelligence'] = Json(sanitized_intelligence)
+                logger.info(f"Prepared intelligence data with Json wrapper")
+            except Exception as e:
+                logger.warning(f"Failed to process intelligence data: {e}, skipping")
         if audio_quality is not None:
             try:
                 # Use Prisma Json wrapper
                 sanitized_quality = sanitize_json_data(audio_quality)
                 data['audioQuality'] = Json(sanitized_quality)
-                logger.info(f"Prepared audio quality data with Json wrapper: {sanitized_quality}")
+                logger.info(f"Prepared audio quality data with Json wrapper")
             except Exception as e:
                 logger.warning(f"Failed to process audio quality data: {e}, skipping")
             
@@ -195,8 +212,6 @@ class TranscriptionJobService:
 # Utility functions for file storage
 def get_audio_storage_path(job_id: str, filename: str) -> str:
     """Generate storage path for audio file"""
-    import os
-    from pathlib import Path
     
     # Create uploads directory if it doesn't exist
     uploads_dir = Path("uploads")
@@ -211,6 +226,24 @@ def get_audio_storage_path(job_id: str, filename: str) -> str:
     storage_filename = f"{job_id}{file_extension}"
     
     return str(date_dir / storage_filename)
+
+async def delete_audio_file(storage_path: str) -> bool:
+    """
+    Delete a stored audio file.
+    Returns True if deleted, False if file not found.
+    """
+    try:
+        path = Path(storage_path)
+        if path.exists():
+            path.unlink()  # removes the file
+            logger.info(f"Deleted audio file at {storage_path}")
+            return True
+        else:
+            logger.warning(f"Audio file not found at {storage_path}")
+            return False
+    except Exception as e:
+        logger.error(f"Error deleting audio file at {storage_path}: {e}")
+        return False
 
 
 async def store_uploaded_file(audio_file, job_id: str) -> str:

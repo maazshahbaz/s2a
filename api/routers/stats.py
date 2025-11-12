@@ -16,13 +16,13 @@ async def health_check(
     services = Depends(get_services)
 ):
     """Health check endpoint - public access for monitoring"""
-    asr_svc, audio_proc, batch_proc = services
-    
+    asr_svc, batch_proc = services
+    batch_processor_stats = await batch_proc.get_queue_stats()
     return HealthResponse(
         status="healthy",
         model_info=asr_svc.get_model_info(),
         gpu_available=torch.cuda.is_available(),
-        batch_processor_stats=batch_proc.get_stats(),
+        batch_processor_stats=batch_processor_stats,
         uptime=time.time() - request.app.state.app_start_time
     )
 
@@ -34,7 +34,7 @@ async def get_service_stats(
     services = Depends(get_services)
 ):
     """Get service performance statistics - requires stats permission"""
-    asr_svc, audio_proc, batch_proc = services
+    asr_svc, batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)

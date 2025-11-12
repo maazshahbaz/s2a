@@ -34,6 +34,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+./triton-service/.env
 
 # IDE
 .vscode/
@@ -93,3 +94,6 @@ temp/
 
 # node_modules
 node_modules
+
+# Model Cache
+/triton-service/model-cache

@@ -6,13 +6,12 @@ from loguru import logger
 import time
 from contextlib import asynccontextmanager
 from services.asr_service import NeMoASRService
-from services.audio_utils import AudioProcessor
-from services.batch_processor import BatchProcessor, BatchConfig
-from config import get_settings, get_intelligence_settings
+from services.batch_processor import BatchProcessor, BatchProcessorConfig
+from config import get_settings, get_redis_settings
 from api.routers import all_routers
-from intelligence.intelligence_service import start_intelligence_service, stop_intelligence_service
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
+from client_triton import TritonClient
 
 prisma = Prisma()
 
@@ -32,6 +31,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing authentication service...")
     initialize_auth_store(prisma)
     logger.info("Authentication service initialized ✅")
+
+    logger.info("Initializing Triton Inference Service...")
+
+    try:
+        app.state.triton_service = TritonService()
+    except Exception as e:
+        logger.error(f"Failed to initialize TritonService: {e}")
+        app.state.triton_service = None
     
     logger.info("Initializing ASR microservice...")
     
@@ -41,41 +48,36 @@ async def lifespan(app: FastAPI):
         device=settings.device,
         batch_size=settings.batch_size,
         max_chunk_duration=settings.max_chunk_duration,
-        min_audio_duration=settings.min_audio_duration
+        min_audio_duration=settings.min_audio_duration,
+        overlap_duration=settings.overlap_duration,
+        target_sample_rate=settings.target_sample_rate,
+        words_per_second=settings.words_per_second,
+        overlap_similarity_threshold=settings.overlap_similarity_threshold
     )
     
-    app.state.audio_processor = AudioProcessor(
-        target_sr=settings.target_sample_rate,
-        vad_aggressiveness=settings.vad_aggressiveness
+    # Initialize Redis-based batch processor
+    redis_settings = get_redis_settings()
+    batch_config = BatchProcessorConfig(
+        redis_host=redis_settings.host,
+        redis_port=redis_settings.port,
+        redis_db=redis_settings.db,
+        redis_password=redis_settings.password,
+        batch_size=redis_settings.batch_size,
+        num_workers=redis_settings.num_workers,
+        max_chunk_duration=settings.max_chunk_duration,
+        overlap_duration=settings.overlap_duration,
+        audio_cache_size=redis_settings.audio_cache_size
     )
-    
-    batch_config = BatchConfig(
-        max_batch_size=settings.batch_size,
-        max_queue_size=settings.max_queue_size,
-        processing_timeout=settings.processing_timeout,
-        dynamic_batching=settings.dynamic_batching,
-        batch_timeout_ms=settings.batch_timeout_ms,
-        gpu_memory_fraction=settings.gpu_memory_fraction
-    )
-    
+
     app.state.batch_processor = BatchProcessor(
         asr_service=app.state.asr_service,
-        config=batch_config,
-        num_workers=settings.num_workers
+        db=app.state.db,
+        triton_service=app.state.triton_service,
+        config=batch_config
     )
     
     # Start batch processor
     await app.state.batch_processor.start()
-
-    # Initialize intelligence service if enabled
-    intelligence_settings = get_intelligence_settings()
-    if intelligence_settings.enabled:
-        try:
-            await start_intelligence_service()
-            logger.info("Intelligence service started successfully")
-        except Exception as e:
-            logger.warning(f"Failed to start intelligence service: {e}")
-            logger.info("Continuing without intelligence service")
 
     logger.info("ASR microservice initialized successfully")
     
@@ -84,15 +86,12 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down ASR microservice...")
 
-    # Stop intelligence service
-    try:
-        await stop_intelligence_service()
-        logger.info("Intelligence service stopped")
-    except Exception as e:
-        logger.warning(f"Error stopping intelligence service: {e}")
-
     if app.state.batch_processor:
         await app.state.batch_processor.stop()
+        
+    if hasattr(app.state, "triton_service"):
+        app.state.triton_service = None
+        logger.info("Triton service released ✅")
     
     logger.info("Disconnecting database...")
     await prisma.disconnect()

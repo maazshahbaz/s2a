@@ -1,5 +1,4 @@
 import torch
-import torchaudio
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Union, Optional, Tuple
@@ -34,26 +33,35 @@ class TranscriptionResult:
     chunks_processed: int = 0
 
 class NeMoASRService:
-    def __init__(self, 
-                 model_name: str = "nvidia/parakeet-tdt-0.6b-v2",
-                 device: str = "cuda" if torch.cuda.is_available() else "cpu",
-                 batch_size: int = 4,
-                 max_chunk_duration: float = 24 * 60,  # 24 minutes in seconds
-                 min_audio_duration: float = 5.0):
-        
+    def __init__(self,
+                 model_name: str,
+                 device: str,
+                 batch_size: int,
+                 max_chunk_duration: float,
+                 min_audio_duration: float,
+                 overlap_duration: float,
+                 target_sample_rate: int,
+                 words_per_second: float,
+                 overlap_similarity_threshold: float):
+
         self.model_name = model_name
         self.device = device
         self.batch_size = batch_size
         self.max_chunk_duration = max_chunk_duration
         self.min_audio_duration = min_audio_duration
+        self.overlap_duration = overlap_duration
+        self.target_sample_rate = target_sample_rate
+        self.words_per_second = words_per_second
+        self.overlap_similarity_threshold = overlap_similarity_threshold
         self.model_type = None
         self.model = None
-        self.processor = None
-        
-        # Initialize chunking manager for NeMo
+
+        # Initialize chunking manager for NeMo (using config values)
         self.chunking_manager = ChunkingManager(
-            max_chunk_duration=24 * 60,  # 24 minutes for NeMo
-            overlap_duration=5.0
+            max_chunk_duration=self.max_chunk_duration,
+            overlap_duration=self.overlap_duration,
+            words_per_second=words_per_second,
+            overlap_similarity_threshold=overlap_similarity_threshold
         )
         
         logger.info(f"Initializing ASR service with model: {model_name}")
@@ -98,29 +106,27 @@ class NeMoASRService:
         if self.device == "cuda" and torch.cuda.is_available():
             # Enable optimized attention for H100
             torch.backends.cuda.enable_flash_sdp(True)
-            
+
             # Set memory format for optimal H100 performance
             torch.backends.cudnn.benchmark = True
-            
-            # Enable Tensor Core usage
+
+            # Enable Tensor Core usage (TF32 for Tensor Cores)
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-            
+
             device_name = torch.cuda.get_device_name(0)
             if "H100" in device_name:
                 logger.info(f"H100 optimizations enabled for {device_name}")
-                # Increase batch size for H100's larger memory
-                if self.model_type == "nemo":
-                    self.batch_size = min(self.batch_size * 2, 16)
-                    logger.info(f"Increased batch size to {self.batch_size} for H100")
+                logger.info(f"Tensor Cores, Flash Attention, and TF32 enabled")
+                logger.info(f"Using configured batch_size: {self.batch_size}")
     
     def _warmup_nemo_model(self):
         logger.info("Warming up NeMo model...")
         try:
             # Create dummy audio for warmup
-            dummy_audio = np.random.randn(16000 * 10).astype(np.float32)  # 10 seconds
+            dummy_audio = np.random.randn(self.target_sample_rate * 10).astype(np.float32)  # 10 seconds
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                sf.write(tmp_file.name, dummy_audio, 16000)
+                sf.write(tmp_file.name, dummy_audio, self.target_sample_rate)
                 # Transcribe dummy audio
                 _ = self.model.transcribe([tmp_file.name])
                 os.unlink(tmp_file.name)
@@ -132,99 +138,84 @@ class NeMoASRService:
     
     def preprocess_audio(self, audio_path: Union[str, Path]) -> Tuple[np.ndarray, float, bool]:
         audio_path = Path(audio_path)
-        
+
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        
+
         try:
             # Load audio using librosa for consistent preprocessing
-            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            audio, sr = librosa.load(audio_path, sr=self.target_sample_rate, mono=True)
             duration = len(audio) / sr
-            
+
             # Check minimum duration
             if duration < self.min_audio_duration:
                 logger.warning(f"Audio duration {duration:.2f}s is below minimum {self.min_audio_duration}s")
                 return audio, duration, False
-            
+
             # Normalize audio
             audio = librosa.util.normalize(audio)
-            
-            logger.info(f"Preprocessed audio: duration={duration:.2f}s, sample_rate=16000Hz, model={self.model_type}")
+
+            logger.info(f"Preprocessed audio: duration={duration:.2f}s, sample_rate={self.target_sample_rate}Hz, model={self.model_type}")
             return audio, duration, True
-            
+
         except Exception as e:
             logger.error(f"Error preprocessing audio {audio_path}: {e}")
             raise
     
-    def chunk_audio_intelligent(self, audio: np.ndarray, sr: int = 16000) -> Tuple[List[AudioChunk], callable]:
+    def chunk_audio_intelligent(self, audio: np.ndarray, sr: int = None) -> Tuple[List[AudioChunk], callable]:
         """Use intelligent chunking for NeMo model (up to 24 minutes per chunk)"""
+        if sr is None:
+            sr = self.target_sample_rate
         total_duration = len(audio) / sr
-        
-        if self.model_type == "nemo":
-            # Use intelligent chunking for NeMo (24-minute chunks)
-            logger.info(f"Using intelligent chunking for NeMo model (24-min chunks)")
-            return self.chunking_manager.process_long_audio(audio, sr)
-        else:
-            # Use smaller chunks for Whisper (30-second optimal)
-            logger.info(f"Using optimal chunking for Whisper model (30-sec chunks)")
-            return self.chunking_manager.process_long_audio(audio, sr)
+
+        # Use intelligent chunking for NeMo (24-minute chunks)
+        logger.info(f"Using intelligent chunking for NeMo model (24-min chunks)")
+        return self.chunking_manager.process_long_audio(audio, sr)
     
-    def chunk_audio_simple(self, audio: np.ndarray, sr: int = 16000) -> List[np.ndarray]:
-        """Fallback simple chunking method"""
+    def chunk_audio_simple(self, audio: np.ndarray, sr: int = None) -> List[np.ndarray]:
+        """Fallback simple chunking method for NeMo"""
+        if sr is None:
+            sr = self.target_sample_rate
         total_duration = len(audio) / sr
-        
-        # Use model-specific chunk duration
-        chunk_duration = self.max_chunk_duration if self.model_type == "nemo" else 30
-        
+
+        # Use NeMo chunk duration (24 minutes)
+        chunk_duration = self.max_chunk_duration
+
         if total_duration <= chunk_duration:
             return [audio]
-        
+
         chunk_samples = int(chunk_duration * sr)
         chunks = []
-        
-        # Model-specific overlap
-        overlap_samples = int((5 if self.model_type == "nemo" else 2) * sr)
-        
+
+        # NeMo overlap (5 seconds)
+        overlap_samples = int(self.overlap_duration * sr)
+
         for start in range(0, len(audio), chunk_samples - overlap_samples):
             end = min(start + chunk_samples, len(audio))
             chunk = audio[start:end]
-            
+
             # Skip chunks that are too short
             if len(chunk) >= int(self.min_audio_duration * sr):
                 chunks.append(chunk)
-        
-        logger.info(f"Split {total_duration:.1f}s audio into {len(chunks)} chunks using {self.model_type} chunking")
+
+        logger.info(f"Split {total_duration:.1f}s audio into {len(chunks)} chunks")
         return chunks
     
     def transcribe_batch(self, audio_chunks: List[AudioChunk]) -> List[Dict]:
-        """Transcribe a batch of audio chunks using the appropriate model"""
-        if self.model_type == "nemo":
-            return self.transcribe_batch_nemo(audio_chunks)
-        elif self.model_type == "whisper":
-            # Convert AudioChunk objects to numpy arrays for Whisper
-            audio_arrays = []
-            for chunk in audio_chunks:
-                if hasattr(chunk, 'audio_data'):
-                    audio_arrays.append(chunk.audio_data)
-                elif hasattr(chunk, 'path'):
-                    # Load audio from file
-                    audio_data, _ = librosa.load(chunk.path, sr=16000)
-                    audio_arrays.append(audio_data)
-            return self.transcribe_batch_whisper(audio_arrays)
-        else:
-            raise ValueError(f"Unknown model type: {self.model_type}")
+        """Transcribe a batch of audio chunks using NeMo model"""
+        return self.transcribe_batch_nemo(audio_chunks)
     
     def transcribe_batch_nemo(self, audio_chunks: List[AudioChunk]) -> List[Dict]:
         """Transcribe chunks using NeMo model with optimized batching"""
         results = []
-        
+
         # Prepare audio files for NeMo (it expects file paths)
         temp_files = []
         try:
             # Save chunks to temporary files
             for i, chunk in enumerate(audio_chunks):
                 temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                sf.write(temp_file.name, chunk.audio_data, 16000)
+                sf.write(temp_file.name, chunk.audio_data, self.target_sample_rate)
                 temp_files.append(temp_file.name)
                 temp_file.close()
             
@@ -235,8 +226,18 @@ class NeMoASRService:
                 
                 start_time = time.time()
                 
-                # NeMo batch transcription
-                transcriptions = self.model.transcribe(batch_files)
+                # NeMo batch transcription with word timestamps (Parakeet supports timestamps=True)
+                try:
+                    transcriptions = self.model.transcribe(batch_files, timestamps=True)
+                    timestamps_supported = True
+                    logger.info("Parakeet word-level timestamps enabled")
+                except TypeError as e:
+                    if "timestamps" in str(e):
+                        logger.warning(f"Model does not support timestamps, falling back to basic transcription: {e}")
+                        transcriptions = self.model.transcribe(batch_files)
+                        timestamps_supported = False
+                    else:
+                        raise
                 
                 processing_time = time.time() - start_time
                 
@@ -244,13 +245,70 @@ class NeMoASRService:
                 for j, (transcription, chunk) in enumerate(zip(transcriptions, batch_chunks)):
                     rtf = processing_time / (chunk.duration * len(batch_chunks))
                     
-                    # Convert NeMo Hypothesis to text
-                    if hasattr(transcription, 'text'):
-                        text = transcription.text
-                    elif isinstance(transcription, str):
-                        text = transcription
+                    # Convert NeMo Hypothesis to text and extract word timestamps
+                    text = ""
+                    word_timestamps = []
+                    
+                    # Debug: Log what we got from the model
+                    logger.debug(f"Transcription type: {type(transcription)}, dir: {dir(transcription)[:10]}")
+                    
+                    # Enhanced debug for Parakeet timestamp structure
+                    if timestamps_supported and hasattr(transcription, 'timestamp'):
+                        logger.info(f"Parakeet timestamp structure: type={type(transcription.timestamp)}")
+                        if isinstance(transcription.timestamp, dict):
+                            logger.info(f"Parakeet timestamp keys: {list(transcription.timestamp.keys())}")
+                            for key, value in transcription.timestamp.items():
+                                logger.info(f"  {key}: type={type(value)}, len={len(value) if hasattr(value, '__len__') else 'N/A'}")
+                                if key == 'word' and len(value) > 0:
+                                    logger.info(f"    Sample word entry: {value[0]}")
+                    
+                    if timestamps_supported:
+                        # Parakeet TDT model with timestamps
+                        try:
+                            # Parakeet format: output[0].timestamp['word']
+                            if hasattr(transcription, 'timestamp') and transcription.timestamp:
+                                if 'word' in transcription.timestamp:
+                                    word_data = transcription.timestamp['word']
+                                    text = " ".join([w['word'] for w in word_data])
+                                    
+                                    # Extract word timestamps with global time adjustment
+                                    for k, word_info in enumerate(word_data):
+                                        global_start = chunk.start_time + word_info['start']
+                                        global_end = chunk.start_time + word_info['end']
+                                        
+                                        word_timestamps.append({
+                                            'word': word_info['word'],
+                                            'start': global_start,
+                                            'end': global_end,
+                                            'word_index': k
+                                        })
+                                    logger.debug(f"Extracted {len(word_timestamps)} word timestamps from Parakeet")
+                                else:
+                                    # Fallback to segment timestamps if word not available
+                                    if 'segment' in transcription.timestamp:
+                                        logger.warning("Parakeet only has segment timestamps, using text-only")
+                                        text = transcription.text if hasattr(transcription, 'text') else str(transcription)
+                            elif hasattr(transcription, 'text'):
+                                # Model supports timestamps but didn't return them
+                                text = transcription.text
+                                logger.debug("Timestamps supported but not returned, using text-only")
+                            else:
+                                # Fallback to string conversion
+                                text = str(transcription)
+                                logger.debug("Using string conversion for transcription")
+                        except Exception as e:
+                            logger.warning(f"Error extracting Parakeet timestamps: {e}")
+                            text = transcription.text if hasattr(transcription, 'text') else str(transcription)
                     else:
-                        text = str(transcription)
+                        # Fallback for models without timestamp support
+                        if hasattr(transcription, 'text'):
+                            text = transcription.text
+                        elif isinstance(transcription, str):
+                            text = transcription
+                        else:
+                            text = str(transcription)
+                    
+                    logger.debug(f"Final text for chunk {j}: '{text.strip()}'")
                     
                     results.append({
                         "text": text.strip(),
@@ -259,7 +317,8 @@ class NeMoASRService:
                         "processing_time": processing_time / len(batch_chunks),
                         "chunk_index": i + j,
                         "start_time": chunk.start_time,
-                        "end_time": chunk.end_time
+                        "end_time": chunk.end_time,
+                        "word_timestamps": word_timestamps if word_timestamps else None
                     })
                 
                 logger.info(f"Processed NeMo batch of {len(batch_chunks)} chunks, RTF: {rtf:.3f}")
@@ -274,6 +333,9 @@ class NeMoASRService:
                     "rtf": float('inf'),
                     "processing_time": 0,
                     "chunk_index": i,
+                    "start_time": chunk.start_time,
+                    "end_time": chunk.end_time,
+                    "word_timestamps": None,
                     "error": str(e)
                 })
         
@@ -284,116 +346,38 @@ class NeMoASRService:
                     os.unlink(temp_file)
         
         return results
-    
-    def transcribe_batch_whisper(self, audio_chunks: List[np.ndarray]) -> List[Dict]:
-        """Transcribe chunks using Whisper model with optimized batching"""
-        results = []
-        
-        for i in range(0, len(audio_chunks), self.batch_size):
-            batch = audio_chunks[i:i + self.batch_size]
-            batch_results = self._process_whisper_batch(batch)
-            results.extend(batch_results)
-        
-        return results
-    
-    def _process_whisper_batch(self, audio_batch: List[np.ndarray]) -> List[Dict]:
-        """Process a batch of audio chunks using Whisper model"""
-        batch_results = []
-        
-        try:
-            # Prepare batch inputs
-            features_batch = []
-            for audio in audio_batch:
-                features = self.processor(audio, 
-                                        sampling_rate=16000, 
-                                        return_tensors="pt").input_features
-                features_batch.append(features)
-            
-            # Stack features for batch processing
-            batch_features = torch.cat(features_batch, dim=0).to(self.device)
-            
-            start_time = time.time()
-            
-            with torch.no_grad():
-                # Generate transcriptions with H100 optimizations
-                generated_tokens = self.model.generate(
-                    batch_features,
-                    max_length=448,
-                    num_beams=1,
-                    do_sample=False,
-                    temperature=0.0,
-                    use_cache=True  # Enable KV cache for H100
-                )
-                
-                # Decode transcriptions
-                transcriptions = self.processor.batch_decode(generated_tokens, 
-                                                           skip_special_tokens=True)
-            
-            processing_time = time.time() - start_time
-            
-            # Process results
-            for i, (audio, transcription) in enumerate(zip(audio_batch, transcriptions)):
-                audio_duration = len(audio) / 16000
-                rtf = processing_time / (audio_duration * len(audio_batch))
-                
-                batch_results.append({
-                    "text": transcription.strip(),
-                    "duration": audio_duration,
-                    "rtf": rtf,
-                    "processing_time": processing_time / len(audio_batch),
-                    "chunk_index": i
-                })
-            
-            logger.info(f"Processed Whisper batch of {len(audio_batch)} chunks, RTF: {rtf:.3f}")
-            
-        except Exception as e:
-            logger.error(f"Error processing Whisper batch: {e}")
-            # Return empty results for failed batch
-            for i, audio in enumerate(audio_batch):
-                batch_results.append({
-                    "text": "",
-                    "duration": len(audio) / 16000,
-                    "rtf": float('inf'),
-                    "processing_time": 0,
-                    "chunk_index": i,
-                    "error": str(e)
-                })
-        
-        return batch_results
-    
+
     def stitch_transcriptions(self, chunk_results: List[Dict], stitch_function: callable = None) -> str:
         """Stitch transcription results using intelligent or simple method"""
-        if stitch_function and self.model_type == "nemo":
-            # Use intelligent stitching for NeMo
+        if stitch_function:
+            # Use intelligent stitching
             logger.info("Using intelligent stitching for NeMo transcription")
             stitched_result = stitch_function(chunk_results)
             return stitched_result.get("text", "")
         else:
-            # Use simple stitching for Whisper or fallback
-            logger.info(f"Using simple stitching for {self.model_type} transcription")
+            # Use simple stitching as fallback
+            logger.info("Using simple stitching")
             valid_chunks = [r for r in chunk_results if r.get("text") and not r.get("error")]
-            
+
             if not valid_chunks:
                 logger.warning("No valid transcriptions to stitch")
                 return ""
-            
-            # Simple stitching with better cleanup
+
+            # Simple stitching with cleanup
             texts = [chunk["text"] for chunk in valid_chunks]
             stitched_text = " ".join(texts)
-            
-            # Enhanced cleanup for Whisper
             stitched_text = " ".join(stitched_text.split())  # Remove extra whitespace
-            
+
             logger.info(f"Stitched {len(valid_chunks)} chunks into final transcription")
             return stitched_text
     
     async def transcribe_audio(self, audio_path: Union[str, Path]) -> TranscriptionResult:
         start_time = time.time()
-        
+
         try:
             # Preprocess audio
             audio, duration, is_valid = self.preprocess_audio(audio_path)
-            
+
             if not is_valid:
                 logger.warning(f"Skipping invalid audio: {audio_path}")
                 return TranscriptionResult(
@@ -403,18 +387,15 @@ class NeMoASRService:
                     processing_time=time.time() - start_time,
                     model_used=self.model_type
                 )
-            
-            # Use model-specific chunking and processing
-            if self.model_type == "nemo":
-                result = await self._transcribe_with_nemo(audio, duration, start_time)
-            else:
-                result = await self._transcribe_with_whisper(audio, duration, start_time)
-            
-            logger.info(f"Transcription completed with {self.model_type}: duration={duration:.2f}s, "
+
+            # Transcribe using NeMo
+            result = await self._transcribe_with_nemo(audio, duration, start_time)
+
+            logger.info(f"Transcription completed: duration={duration:.2f}s, "
                        f"RTF={result.rtf:.3f}, chunks={result.chunks_processed}")
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error transcribing audio {audio_path}: {e}")
             return TranscriptionResult(
@@ -429,7 +410,7 @@ class NeMoASRService:
         """Transcribe using NeMo model with intelligent chunking"""
         try:
             # Use intelligent chunking for NeMo (up to 24 minutes per chunk)
-            audio_chunks, stitch_function = self.chunk_audio_intelligent(audio, 16000)
+            audio_chunks, stitch_function = self.chunk_audio_intelligent(audio, self.target_sample_rate)
             
             # Transcribe chunks using NeMo
             chunk_results = self.transcribe_batch_nemo(audio_chunks)
@@ -461,79 +442,33 @@ class NeMoASRService:
             logger.error(f"Error in NeMo transcription: {e}")
             # Fallback to simple chunking
             return await self._transcribe_with_simple_chunking(audio, duration, start_time)
-    
-    async def _transcribe_with_whisper(self, audio: np.ndarray, duration: float, start_time: float) -> TranscriptionResult:
-        """Transcribe using Whisper model with optimal chunking"""
-        total_duration = len(audio) / 16000
-        
-        if total_duration <= 30:  # Single chunk for short audio
-            chunk_results = self.transcribe_batch_whisper([audio])
-            final_text = chunk_results[0].get("text", "") if chunk_results else ""
-            chunks_count = 1
-        else:
-            # Use intelligent chunking for longer audio
-            audio_chunks, stitch_function = self.chunk_audio_intelligent(audio, 16000)
-            
-            # Convert AudioChunk objects to numpy arrays for Whisper
-            audio_arrays = [chunk.audio_data for chunk in audio_chunks]
-            
-            # Transcribe chunks using Whisper
-            chunk_results = self.transcribe_batch_whisper(audio_arrays)
-            
-            # Use simple stitching for Whisper
-            final_text = self.stitch_transcriptions(chunk_results)
-            chunks_count = len(audio_chunks)
-        
-        processing_time = time.time() - start_time
-        rtf = processing_time / duration if duration > 0 else float('inf')
-        
-        # Calculate average confidence if available
-        valid_chunks = [r for r in chunk_results if not r.get("error")]
-        avg_confidence = None
-        if valid_chunks and all("confidence" in r for r in valid_chunks):
-            avg_confidence = sum(r["confidence"] for r in valid_chunks) / len(valid_chunks)
-        
-        return TranscriptionResult(
-            text=final_text,
-            duration=duration,
-            rtf=rtf,
-            chunks=chunk_results,
-            confidence=avg_confidence,
-            processing_time=processing_time,
-            model_used="whisper",
-            chunks_processed=chunks_count
-        )
-    
+
     async def _transcribe_with_simple_chunking(self, audio: np.ndarray, duration: float, start_time: float) -> TranscriptionResult:
-        """Fallback transcription with simple chunking"""
+        """Fallback transcription with simple chunking for NeMo"""
         logger.info("Using fallback simple chunking")
-        
+
         # Use simple chunking as fallback
         audio_chunks = self.chunk_audio_simple(audio)
-        
-        # Transcribe based on model type
-        if self.model_type == "nemo":
-            # Convert to AudioChunk objects for NeMo
-            audio_chunk_objects = []
-            for i, chunk in enumerate(audio_chunks):
-                chunk_duration = len(chunk) / 16000
-                audio_chunk_objects.append(AudioChunk(
-                    audio_data=chunk,
-                    start_time=i * (chunk_duration - 5),  # Approximate
-                    end_time=(i + 1) * (chunk_duration - 5),
-                    duration=chunk_duration,
-                    chunk_id=i
-                ))
-            chunk_results = self.transcribe_batch_nemo(audio_chunk_objects)
-        else:
-            chunk_results = self.transcribe_batch_whisper(audio_chunks)
-        
+
+        # Convert to AudioChunk objects for NeMo
+        audio_chunk_objects = []
+        for i, chunk in enumerate(audio_chunks):
+            chunk_duration = len(chunk) / self.target_sample_rate
+            audio_chunk_objects.append(AudioChunk(
+                audio_data=chunk,
+                start_time=i * (chunk_duration - 5),  # Approximate
+                end_time=(i + 1) * (chunk_duration - 5),
+                duration=chunk_duration,
+                chunk_id=i
+            ))
+        chunk_results = self.transcribe_batch_nemo(audio_chunk_objects)
+
         # Simple stitching
         final_text = self.stitch_transcriptions(chunk_results)
-        
+
         processing_time = time.time() - start_time
         rtf = processing_time / duration if duration > 0 else float('inf')
-        
+
         return TranscriptionResult(
             text=final_text,
             duration=duration,

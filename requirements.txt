@@ -8,7 +8,7 @@ numpy>=1.24.0
 scipy>=1.10.0
 
 # ASR Models
-nemo_toolkit[asr]>=1.20.0
+nemo_toolkit[asr]>=2.0.0
 openai>=1.0.0
 
 # API and Web
@@ -22,6 +22,9 @@ python-multipart>=0.0.6
 pandas>=2.0.0
 pydub>=0.25.0
 webrtcvad>=2.0.10
+
+# Queueing and caching
+redis[hiredis]>=5.0.0
 
 # Utilities
 python-dotenv>=1.0.0
@@ -54,3 +57,4 @@ psycopg2-binary>=2.9.0
 httpx>=0.25.0  # For vLLM API calls
 redis>=4.5.0   # Optional caching
 asyncio-throttle>=1.0.2  # Rate limiting
+tritonclient[all]
