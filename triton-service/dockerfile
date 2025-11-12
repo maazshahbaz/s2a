@@ -1,0 +1,46 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:24.09-py3
+
+# Accept HF_TOKEN as build argument
+ARG HF_TOKEN
+
+# Set environment variables
+ENV NVIDIA_VISIBLE_DEVICES=0 \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    CUDA_VISIBLE_DEVICES=0 \
+    TRANSFORMERS_CACHE=/models/.cache \
+    HF_HOME=/models/.cache \
+    TORCH_HOME=/models/.cache
+
+# Install required Python packages
+RUN pip install --no-cache-dir \
+    transformers \
+    torch \
+    accelerate \
+    sentencepiece \
+    bitsandbytes
+
+# Create necessary directories
+RUN mkdir -p /models /models/.cache
+
+# Expose ports
+EXPOSE 2000 2001 2002
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=2000", \
+     "--grpc-port=2001", \
+     "--metrics-port=2002", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]
