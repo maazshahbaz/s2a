@@ -1,4 +1,4 @@
-from client_triton import TritonClient
+from .client_triton import TritonClient
 from loguru import logger
 import os
 
@@ -6,7 +6,7 @@ import os
 class TritonService:
     def __init__(self):
         # URL like "triton-server:2001" (from Docker Compose network)
-        triton_url = os.getenv("TRITON_URL", "triton-server:2001")
+        triton_url = os.getenv("TRITON_URL", "host.docker.internal:2001")
         model_name = os.getenv("TRITON_MODEL", "llama-8b-instruct")
 
         logger.info(f"Initializing Triton client (url={triton_url}, model={model_name})")
