@@ -19,6 +19,7 @@ from .chunking_utils import AudioChunk
 from .alignment_service import align_sentence_segments, align_words_to_speakers, render_speaker_attributed_text
 from .diarization_service import load_diar_segments, DiarizationService
 from config import get_diarization_settings
+import torch
 
 
 class AudioCache:
@@ -692,6 +693,9 @@ class ChunkWorker:
                 # Note: Database operations should be moved to a dedicated service
                 # For now, we'll just log completion
                 logger.info(f"Job {job_id} transcription complete: {len(final_text)} chars, RTF: {overall_rtf:.3f}")
+                
+                # Clear the GPU cache
+                torch.cuda.empty_cache()
 
     def _update_stats(self, chunks: List[ChunkMetadata], batch_time: float):
         """Update worker statistics"""
