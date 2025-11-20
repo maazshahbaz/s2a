@@ -12,7 +12,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -72,9 +71,7 @@ dmypy.json
 # Data files
 data/
 datasets/
-*.json
 *.csv
-!configs/*.json
 !examples/*.json
 
 # Logs
