@@ -11,7 +11,7 @@ from config import get_settings, get_redis_settings
 from api.routers import all_routers
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
-from client_triton import TritonClient
+from services.triton.triton_service import TritonService
 
 prisma = Prisma()
 
