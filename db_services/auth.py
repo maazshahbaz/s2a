@@ -55,6 +55,7 @@ class APIKey(BaseModel):
     key_id: str
     key_hash: str
     name: str
+    userId: int
     key_type: APIKeyType
     created_at: datetime
     last_used: Optional[datetime] = None
@@ -94,7 +95,7 @@ class PrismaAPIKeyStore:
     def __init__(self, db: Prisma):
         self.db = db
 
-    async def create_key(self, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
+    async def create_key(self, user_id:int, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
         """Create a new API key and store it in the database"""
         # Generate plaintext key
         key_suffix = secrets.token_urlsafe(32)
@@ -108,8 +109,8 @@ class PrismaAPIKeyStore:
             # Create in database
             auth_key = await self.db.authkey.create(
                 data={
-                    'keyId': key_hash[:12],
-                    'keyHash': key_hash,
+                    'hash': key_hash,
+                    'userId':user_id,
                     'name': name,
                     'keyType': key_type.value,
                     'requestsPerMinute': kwargs.get('requests_per_minute', 60),
@@ -134,7 +135,7 @@ class PrismaAPIKeyStore:
         
         try:
             auth_key = await self.db.authkey.find_unique(
-                where={'keyHash': key_hash}
+                where={'hash': key_hash}
             )
             
             if auth_key:
@@ -173,7 +174,7 @@ class PrismaAPIKeyStore:
                 update_data['totalAudioMinutes'] = {'increment': audio_duration / 60.0}
             
             await self.db.authkey.update(
-                where={'keyHash': key_hash},
+                where={'hash': key_hash},
                 data=update_data
             )
         except Exception as e:
@@ -185,12 +186,12 @@ class PrismaAPIKeyStore:
         
         try:
             result = await self.db.authkey.update(
-                where={'keyHash': key_hash},
+                where={'hash': key_hash},
                 data={'isActive': False}
             )
             
             if result:
-                logger.info(f"Revoked API key: {result.keyId}")
+                logger.info(f"Revoked API key: {result.key}")
                 return True
             return False
             
@@ -214,8 +215,8 @@ class PrismaAPIKeyStore:
     def _auth_key_to_api_key(self, auth_key) -> APIKey:
         """Convert Prisma AuthKey model to APIKey pydantic model"""
         return APIKey(
-            key_id=auth_key.keyId,
-            key_hash=auth_key.keyHash,
+            key_id=auth_key.key,
+            key_hash=auth_key.hash,
             name=auth_key.name,
             key_type=APIKeyType(auth_key.keyType),
             created_at=auth_key.createdAt,

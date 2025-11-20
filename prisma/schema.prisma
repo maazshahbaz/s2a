@@ -15,10 +15,50 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           Int          @id @default(autoincrement())
+  key          String       @unique @default(uuid())
+  email        String       @unique
+  name         String?
+  externalId String   @unique
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // relations
+  otps         EmailOtp[]
+  authKeys      AuthKey[]
+  refreshTokens RefreshToken[]
+}
+
+model EmailOtp {
+  id        Int   @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @unique @map("user_id")
+  otpHash   String @map("otp_hash")
+  expiresAt DateTime @map("expires_at")
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+}
+
+model RefreshToken {
+  id        Int   @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int @map("user_id")
+
+  tokenHash String @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+}
+
+
 model AuthKey {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) // internal DB id
-  keyId             String    @unique @map("key_id")
-  keyHash           String    @unique @map("key_hash")
+  id                Int       @id @default(autoincrement()) // internal DB id
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            Int       @map("user_id")
+  key               String    @unique @default(uuid())
+  hash              String    @unique
   name              String
   keyType           String    @map("key_type")
   createdAt         DateTime  @default(now()) @map("created_at")
