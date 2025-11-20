@@ -11,6 +11,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from .chunking_utils import ChunkingManager, AudioChunk
+import torch
+import gc
 
 # NeMo imports - required for this service
 try:
@@ -229,6 +231,7 @@ class NeMoASRService:
                 # NeMo batch transcription with word timestamps (Parakeet supports timestamps=True)
                 try:
                     transcriptions = self.model.transcribe(batch_files, timestamps=True)
+                    torch.cuda.empty_cache()
                     timestamps_supported = True
                     logger.info("Parakeet word-level timestamps enabled")
                 except TypeError as e:
@@ -344,6 +347,10 @@ class NeMoASRService:
             for temp_file in temp_files:
                 if os.path.exists(temp_file):
                     os.unlink(temp_file)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
+                logger.debug("Final CUDA cache clear and garbage collection")
         
         return results
 
