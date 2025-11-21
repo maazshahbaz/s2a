@@ -14,55 +14,96 @@ class TritonClient:
         self.model_name = model_name
         self.client = grpcclient.InferenceServerClient(url=url)
 
-    def analyze_call(self, transcription, max_tokens=512, temperature=0.3, 
+    def analyze_call(self, transcription, max_tokens=1024, temperature=0.3,
                      top_p=0.9):
         """
         Analyze call transcription and return structured JSON
-        
+
         Args:
             transcription: Call transcription text
-            max_tokens: Maximum tokens to generate (default: 512)
-            temperature: Sampling temperature (default: 0.3 for more focused output)
+            max_tokens: Maximum tokens to generate (default: 1024 for comprehensive output)
+            temperature: Sampling temperature (default: 0.3 for more structured output)
             top_p: Nucleus sampling (default: 0.9)
-            verbose: Print details
-            
+
         Returns:
-            dict: Parsed JSON response with call analysis
+            dict: Comprehensive parsed JSON response with call analysis
         """
 
-        # Construct the prompt
-        prompt = f"""                                                                                                                        You are an expert call center quality analyst. The following text is a call transcription written as a single paragraph with no speaker labels.
-    Your task is to infer the likely dialogue flow between the customer and the agent, and then provide a structured analysis of the call.
+        # Construct the enhanced prompt for comprehensive analysis
+        prompt = f"""You are an expert AI system specializing in call center analytics, fraud detection, and business intelligence extraction.
 
-    Call Transcription:
-    {transcription}
+Analyze the following call transcription and provide a comprehensive structured analysis.
 
-    Perform the following steps:
-    1. Reconstruct the conversation in your mind by inferring which parts are spoken by the customer and which by the agent.
-    2. Analyze the inferred conversation for tone, resolution, and key insights.
+Call Transcription:
+{transcription}
 
-    Respond ONLY with a valid JSON object (no extra text or explanations).
+Provide a detailed analysis following this EXACT JSON structure. Be thorough and specific:
 
-    The JSON must strictly follow this structure:
-    {{
-        "call_sentiment": "positive" | "negative" | "neutral",
-        "call_summary": "A summary of the main points of the call.",
-        "call_status": "resolved" | "pending" | "escalated",
-        "call_improvement_points": [
-            "Specific, actionable improvement point 1",
-            "Specific, actionable improvement point 2"
-        ],
-        "key_words": [
-            "keyword1",
-            "keyword2",
-            "keyword3"
-        ]
+{{
+    "ai_analysis": {{
+        "call_type": {{
+            "human_to_human": true/false,
+            "ivr": true/false,
+            "voicemail": true/false
+        }},
+        "sentiment": {{
+            "category": "Positive|Negative|Neutral|Mixed",
+            "confidence": 0.0-1.0,
+            "key_indicators": ["list of phrases that indicate the sentiment"]
+        }},
+        "summary": "Detailed summary with key outcomes and decisions",
+        "call_status": {{
+            "voicemail_message_request": true/false,
+            "do_not_disturb": true/false,
+            "wrong_number": true/false,
+            "callback_requested": true/false
+        }},
+        "extracted_items": {{
+            "products": [
+                {{
+                    "name": "product/service name",
+                    "quantity": number or null,
+                    "mentioned_at": "context or sequence reference"
+                }}
+            ],
+            "action_items": [
+                {{
+                    "description": "what needs to be done",
+                    "owner": "who is responsible",
+                    "deadline": "when it's due or null"
+                }}
+            ],
+            "contact_info": {{
+                "phone": "phone number or null",
+                "email": "email address or null",
+                "name": "person's name or null"
+            }}
+        }},
+        "fraud_detection": {{
+            "suspicious_language": true/false,
+            "high_pressure_tactics": true/false,
+            "risk_level": "Low|Medium|High",
+            "evidence": ["specific phrases or patterns that indicate risk"]
+        }}
     }}
-    """
+}}
+
+IMPORTANT:
+- Return ONLY valid JSON with no additional text
+- Use null for missing values, never omit fields
+- Ensure all boolean values are lowercase (true/false)
+- Keep arrays empty [] if no items found
+- Be specific and detailed in descriptions"""
 
 
-        # System prompt
-        system_prompt = "You are a helpful assistant that analyzes call center transcriptions and provides structured insights."
+        # Enhanced system prompt for comprehensive analysis
+        system_prompt = """You are an expert AI system specializing in call center analytics with advanced capabilities in:
+- Fraud detection and risk assessment
+- Sentiment analysis with confidence scoring
+- Entity and information extraction
+- Business intelligence and opportunity identification
+- Call quality assessment and improvement recommendations
+Your responses must be precise, structured JSON that captures both high-level insights and granular details."""
 
         try:
             # Prepare inputs with proper batch dimensions

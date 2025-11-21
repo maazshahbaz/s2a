@@ -416,8 +416,8 @@ class ChunkWorker:
                 try:
                     intelligence_result = self.triton_service.analyze(
                         transcription=final_text,
-                        max_tokens=512,
-                        temperature=0.3,
+                        max_tokens=1024,  # Increased for comprehensive analysis
+                        temperature=0.3,   # Lower for more structured output
                         top_p=0.9
                     )
 
