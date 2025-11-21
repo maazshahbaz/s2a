@@ -1,16 +1,13 @@
 version: '3.8'
 
 services:
-triton-server:
+  triton-server:
     build:
-      context: .
-      dockerfile: ./triton-service/dockerfile
-    image: triton-service:latest
-    container_name: triton-service
-    
-    # Load environment variables from .env file into running container
-    env_file:
-      - ./triton-service/.env
+      context: ./triton-service/
+      dockerfile: Dockerfile
+    image: triton:latest
+    container_name: triton
+  
 
     # GPU configuration
     deploy:
@@ -22,7 +19,7 @@ triton-server:
               capabilities: [gpu]
 
     # Shared memory and limits
-    shm_size: '4gb'
+    shm_size: '32gb'
     ulimits:
       memlock: -1
       stack: 67108864
@@ -36,7 +33,8 @@ triton-server:
     # Volume mappings
     volumes:
       - ./triton-service/model_repository:/models
-      - ./triton-service/model-cache:/models/.cache
+      - model-cache:/.cache
+      - /home/sj/Desktop/data/back2/bytepulse-ai/uploads:/data/uploads:ro
 
     # Restart policy
     restart: unless-stopped
@@ -49,13 +47,10 @@ triton-server:
       retries: 5
       start_period: 300s
 
-    networks:
-      - triton-network
-
-  triton-network
-    driver: bridge
-
 volumes:
-  ./triton-service/model-cache:
+  model-cache:
     driver: local
 
+networks:
+  default:
+    name: triton-server
