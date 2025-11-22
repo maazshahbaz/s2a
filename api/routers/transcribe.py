@@ -9,7 +9,7 @@ import uuid
 from config import get_settings
 from loguru import logger
 from webhook import webhook_sender
-from dependencies import process_audio_background_db
+from dependencies import process_audio_background_db, get_triton_service
 from utils import get_audio_duration
 
 router = APIRouter(prefix="/transcribe", tags=["Transcription"])
@@ -28,7 +28,8 @@ async def transcribe_async(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
     services = Depends(get_services),
-    transcription_svc = Depends(get_transcription_service)
+    transcription_svc = Depends(get_transcription_service),
+    triton_svc = Depends(get_triton_service)
 ):
     """Asynchronous transcription endpoint - requires transcribe permission and callback_url"""
     asr_svc, batch_proc = services
@@ -84,7 +85,7 @@ async def transcribe_async(
             process_audio_background_db,
             job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
             asr_svc, batch_proc, include_intelligence, intelligence_mode,
-            request.state.api_key, transcription_svc
+            request.state.api_key, transcription_svc, triton_svc
         )
         
         return TranscribeAsyncResponse(job_id=job_id, status="accepted")
