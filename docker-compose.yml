@@ -92,6 +92,9 @@ services:
       - S2A_API_HOST=0.0.0.0
       - S2A_API_PORT=8001
 
+      # Webhook configuration
+      - WEBHOOK_FILE=/app/logs/webhook_data.jsonl
+
     networks:
       - s2a-network
     runtime: nvidia
