@@ -17,8 +17,6 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from loguru import logger
 from pathlib import Path
-import torch
-import gc
 
 
 DIAR_MODEL_NAME = "nvidia/diar_sortformer_4spk-v1"
@@ -174,12 +172,6 @@ class DiarizationService:
                     logger.info(f"Single-chunk diarization for {duration/60:.1f}m audio (≤{self.chunk_duration/60:.0f}m)")
                     loop = asyncio.get_event_loop()
                     segments = await loop.run_in_executor(None, self._run_sync, audio_path, ms)
-                    # ✅ CLEAR CACHE AFTER SINGLE-CHUNK INFERENCE
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        gc.collect()
-                        logger.debug(f"Cleared CUDA cache after single-chunk diarization ({duration/60:.1f}m)")
-
                     logger.info(f"Diarization complete: {len(segments)} segments, {len(set(s.speaker for s in segments))} speakers")
                     return segments
                 
@@ -195,10 +187,6 @@ class DiarizationService:
                 for i, chunk in enumerate(chunks):
                     logger.info(f"Processing chunk {i+1}/{len(chunks)}: {chunk['start']:.1f}s - {chunk['end']:.1f}s")
                     segments = await self._diarize_chunk(audio_path, chunk, ms)
-                    # ✅ CLEAR CACHE AFTER EACH CHUNK
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        logger.debug(f"Cleared CUDA cache after chunk {i+1}/{len(chunks)}")
                     chunk_results.append({
                         'chunk_idx': i,
                         'chunk': chunk,
@@ -209,22 +197,11 @@ class DiarizationService:
                 # Extract speaker embeddings from overlap regions for cross-chunk matching
                 logger.info("Extracting speaker embeddings from overlaps...")
                 embeddings = await self._extract_overlap_embeddings(audio_path, chunk_results)
-                # ✅ CLEAR CACHE AFTER EMBEDDING EXTRACTION
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    logger.debug("Cleared CUDA cache after embedding extraction")
-
                 logger.info(f"Extracted {len(embeddings)} speaker embeddings")
                 
                 # Re-identify speakers across chunks using TitaNet embeddings
                 logger.info("Re-identifying speakers across chunks with TitaNet...")
-                merged_segments = await self._merge_and_reidentify(chunk_results, embeddings)
-                # ✅ FINAL CACHE CLEAR AFTER RE-IDENTIFICATION
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    logger.debug("Final CUDA cache clear after speaker re-identification")
+                merged_segments = await self._merge_and_reidentify(chunk_results, embeddings)          
                 num_speakers = len(set(seg.speaker for seg in merged_segments))
                 logger.info(f"Multi-chunk diarization complete: {len(merged_segments)} segments, {num_speakers} speakers")
                 
