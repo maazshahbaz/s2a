@@ -4,9 +4,7 @@ from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
 from generated.prisma import Prisma
-from services.diarization_service import DiarizationService, store_diar_segments
 from services.triton.triton_service import TritonService, run_async_pipeline
-from config import get_diarization_settings
 
 
 # Dependency to get services
