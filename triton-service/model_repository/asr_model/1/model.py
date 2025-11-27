@@ -1,0 +1,170 @@
+import triton_python_backend_utils as pb_utils
+import numpy as np
+import nemo.collections.asr as nemo_asr
+import librosa
+import soundfile as sf
+import tempfile
+import os
+import json
+import gc
+import torch
+
+class TritonPythonModel:
+    def initialize(self, args):
+        """Initialize the model"""
+        self.model_config = json.loads(args['model_config'])
+        
+        # Load the ASR model once during initialization
+        self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
+            model_name="nvidia/parakeet-tdt-0.6b-v2"
+        )
+        self.target_sr = 16000
+        
+    def execute(self, requests):
+        """Execute inference on a batch of requests"""
+        # Collect all audio paths from all requests (1 per request)
+        all_audio_paths = []
+        
+        for request in requests:
+            audio_path_tensor = pb_utils.get_input_tensor_by_name(request, "audio_path")
+            audio_path_np = audio_path_tensor.as_numpy()
+            
+            # Handle both batched and non-batched cases
+            if audio_path_np.ndim == 2:
+                audio_path = audio_path_np[0, 0]
+            else:
+                audio_path = audio_path_np[0]
+            
+            # Decode bytes to string
+            if isinstance(audio_path, bytes):
+                audio_path = audio_path.decode('utf-8')
+            
+            full_audio_path = os.path.join("/data/uploads", audio_path)
+            all_audio_paths.append(full_audio_path)
+        
+        # Process all audio files at once
+        temp_files = []
+        processed_paths = []
+        
+        try:
+            # Preprocess all audio files from all requests
+            for audio_path in all_audio_paths:
+                # Load and resample audio
+                audio, sr = librosa.load(audio_path, sr=None)
+                
+                if sr != self.target_sr:
+                    audio_resampled = librosa.resample(
+                        audio, 
+                        orig_sr=sr, 
+                        target_sr=self.target_sr
+                    )
+                else:
+                    audio_resampled = audio
+                
+                # Save to temporary file
+                temp_file = tempfile.NamedTemporaryFile(
+                    suffix='.wav', 
+                    delete=False
+                )
+                temp_path = temp_file.name
+                temp_file.close()
+                
+                sf.write(temp_path, audio_resampled, self.target_sr)
+                temp_files.append(temp_path)
+                processed_paths.append(temp_path)
+            
+            print(f"Processing {len(processed_paths)} audio files")
+            
+            # Transcribe with word-level timestamps
+            transcriptions = self.asr_model.transcribe(
+                processed_paths,
+                num_workers=8,
+                batch_size=8,
+                timestamps=True,  # Enable timestamps
+                return_hypotheses=True  # Get detailed output with word info
+            )
+            
+        finally:
+            # Clean up temporary files
+            for temp_path in temp_files:
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+        
+        # Create responses (1 transcription per request)
+        responses = []
+        
+        for idx, request in enumerate(requests):
+            result = transcriptions[idx]
+            
+            # Extract transcription text
+            transcription_text = result.text
+            word_timestamps = result.timestamp["segment"]
+            
+            # if result.words:
+                
+            
+            # # Extract word/segment-level timestamps
+            # word_timestamps = []
+            # if hasattr(result, 'words') and result.words:
+            #     for word_info in result.words:
+            #         # Handle dictionary format (as shown in your output)
+            #         if isinstance(word_info, dict):
+            #             word_timestamps.append({
+            #                 'text': word_info.get('segment', ''),
+            #                 'start': round(word_info.get('start', 0.0), 2),
+            #                 'end': round(word_info.get('end', 0.0), 2),
+            #                 'start_offset': word_info.get('start_offset', 0),
+            #                 'end_offset': word_info.get('end_offset', 0)
+            #             })
+            #         # Handle object format (if it has attributes)
+            #         elif hasattr(word_info, 'segment'):
+            #             word_timestamps.append({
+            #                 'text': word_info.segment,
+            #                 'start': round(word_info.start, 2),
+            #                 'end': round(word_info.end, 2),
+            #                 'start_offset': word_info.start_offset if hasattr(word_info, 'start_offset') else 0,
+            #                 'end_offset': word_info.end_offset if hasattr(word_info, 'end_offset') else 0
+            #             })
+            
+            # Create JSON output with text and timestamps
+            output_data = {
+                'text': transcription_text,
+                'word_timestamps': word_timestamps
+            }
+            
+            # print(output_data)
+            output_json = json.dumps(output_data)
+            
+            # Convert to numpy array with proper shape
+            transcription_array = np.array(
+                [[output_json]], 
+                dtype=object
+            )
+            
+            # Create output tensor
+            output_tensor = pb_utils.Tensor(
+                "transcription",
+                transcription_array
+            )
+            
+            inference_response = pb_utils.InferenceResponse(
+                output_tensors=[output_tensor]
+            )
+            responses.append(inference_response)
+        
+        # Cleanup
+        del transcriptions
+        gc.collect()
+        
+        if hasattr(self.asr_model, 'disable_cuda_graphs'):
+            self.asr_model.disable_cuda_graphs()
+        
+        torch.cuda.empty_cache()
+        
+        return responses
+    
+    def finalize(self):
+        """Clean up resources"""
+        del self.asr_model

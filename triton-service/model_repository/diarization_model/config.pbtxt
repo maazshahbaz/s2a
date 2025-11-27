@@ -1,0 +1,58 @@
+name: "diarization_model"
+backend: "python"
+max_batch_size: 2
+
+# Input: Audio waveform (variable length)
+input [
+  {
+    name: "audio_input"
+    data_type: TYPE_FP32
+    dims: [ -1 ]  # Variable length audio (batch handled by Triton)
+  },
+  {
+    name: "sample_rate"
+    data_type: TYPE_INT32
+    dims: [ 1 ]  # Single value
+  }
+]
+
+# Output: Diarization results as JSON string
+output [
+  {
+    name: "diarization_output"
+    data_type: TYPE_STRING
+    dims: [ 1 ]  # Single JSON string per request
+  }
+]
+
+# Instance group: 10 instances on GPU
+instance_group [
+  {
+    count: 2
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+# Dynamic batching configuration
+dynamic_batching {
+  
+  max_queue_delay_microseconds: 5000
+  preserve_ordering: false
+
+}
+
+# Model parameters
+parameters: {
+  key: "INFERENCE_MODE"
+  value: {
+    string_value: "ultra_fast"
+  }
+}
+
+parameters: {
+  key: "NUM_SPEAKERS"
+  value: {
+    string_value: "2"
+  }
+}
