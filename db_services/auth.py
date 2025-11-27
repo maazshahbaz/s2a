@@ -199,10 +199,11 @@ class PrismaAPIKeyStore:
             logger.error(f"Failed to revoke API key: {e}")
             return False
 
-    async def list_keys(self) -> List[APIKey]:
+    async def list_keys(self, user_id: int) -> List[APIKey]:
         """List all API keys"""
         try:
             auth_keys = await self.db.authkey.find_many(
+                where={'userId': user_id},
                 order={'createdAt': 'desc'}
             )
             

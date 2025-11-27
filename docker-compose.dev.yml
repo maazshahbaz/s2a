@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  # Redis (same as prod, since it’s lightweight and needed for chunk queue)
+  # Redis (same as prod, since it's lightweight and needed for chunk queue)
   redis-dev:
     image: redis:7-alpine
     container_name: s2a-redis-dev
@@ -23,12 +23,14 @@ services:
   db-dev:
     image: postgres:15-alpine
     container_name: s2a-postgres-dev
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-s2a_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-s2a_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-s2a_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-s2a-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-s2a-db}
     ports:
-      - "5433:5432" # separate from prod
+      - "5433:5432"
     volumes:
       - postgres-data-dev:/var/lib/postgresql/data
       - ./prisma:/docker-entrypoint-initdb.d
@@ -36,56 +38,47 @@ services:
       - s2a-network-dev
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a_user} -d ${POSTGRES_DB:-s2a_dev}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a-user} -d ${POSTGRES_DB:-s2a-db}" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # API service with hot reload
   s2a-api-dev:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: s2a-api-dev
     extra_hosts:
       - "host.docker.internal:172.17.0.1"
     ports:
-      - "8002:8001" # dev API port
-      - "9091:9090" # dev Prometheus port
+      - "8002:8001"
+      - "9091:9090"
     volumes:
       - ./logs:/app/logs
       - /tmp/s2a:/tmp/s2a
       - ../uploads:/app/uploads
-      - .:/app # source code mount for hot reload
+      - .:/app
+      - /app/node_modules
+      - /app/api_portal
       - huggingface-cache-dev:/root/.cache/huggingface
-    # env_file:
-    #   - .env.dev
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
-      # DB + Redis
-      - DATABASE_URL=${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db-dev:5432/s2a_dev}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://s2a-user:pass@db-dev:5432/s2a-db}
       - S2A_REDIS_HOST=redis-dev
       - S2A_REDIS_PORT=6379
       - S2A_REDIS_DB=0
-
-      # Redis batch settings (smaller for dev)
       - S2A_REDIS_BATCH_SIZE=8
       - S2A_REDIS_NUM_WORKERS=1
       - S2A_REDIS_AUDIO_CACHE_SIZE=5
-
-      # ASR model
       - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
       - S2A_DEVICE=cuda
       - S2A_BATCH_SIZE=2
       - S2A_MAX_CHUNK_DURATION=600
       - S2A_MIN_AUDIO_DURATION=5.0
       - S2A_OVERLAP_DURATION=3.0
-
-      # Diarization
       - S2A_DIAR_MODEL=nvidia/diar_sortformer_4spk-v1
       - S2A_DIAR_MAX_SPEAKERS=4
-
-      # Performance / API
       - S2A_LOG_LEVEL=DEBUG
       - S2A_ENABLE_MIXED_PRECISION=false
       - S2A_GPU_MEMORY_FRACTION=0.5
@@ -93,11 +86,16 @@ services:
       - S2A_API_HOST=0.0.0.0
       - S2A_API_PORT=8001
       - API_KEY_SECRET=${API_KEY_SECRET:-REDACTED_API_KEY_SECRET}
-
     networks:
       - s2a-network-dev
     runtime: nvidia
-    command: [ "sh", "-c", "prisma generate && (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001" ]
+    command: >
+      sh -c "
+      prisma generate &&
+      (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $$(ls prisma/migrations | head -1) && prisma migrate deploy)) &&
+      prisma py fetch &&
+      python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001
+      "
     depends_on:
       redis-dev:
         condition: service_healthy
@@ -109,7 +107,28 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
+  
+  nextjs-portal-dev:
+    build:
+      context: ./api_portal
+      dockerfile: Dockerfile   # dev Dockerfile
+    container_name: nextjs_portal_dev
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./api_portal:/app          # source code for hot reload
+      - /app/node_modules          # keep container's node_modules
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=https://dev.api.bytepulseai.com
+      - NEXTAUTH_URL=https://dev.bytepulseai.com
+
+    command: npm run dev
+    depends_on:
+      - s2a-api-dev
+    networks:
+      - s2a-network-dev
 
 networks:
   s2a-network-dev:

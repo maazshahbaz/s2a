@@ -6,7 +6,8 @@ import os
 from generated.prisma import Prisma
 from services.diarization_service import DiarizationService, store_diar_segments
 from config import get_diarization_settings
-
+from db_services.transcription import TranscriptionJobService
+from db_services.auth import PrismaAPIKeyStore
 
 # Dependency to get services
 def get_services(request:Request):
@@ -113,7 +114,13 @@ async def get_db(request: Request) -> Prisma:
     return request.app.state.db
 
 # Dependency to get transcription service
-def get_transcription_service(request: Request):
-    from db_services.transcription import TranscriptionJobService
-    db = request.app.state.db
+def get_transcription_service(
+    db = Depends(get_db)
+) -> TranscriptionJobService:
     return TranscriptionJobService(db)
+
+# Dependency to get auth key service
+def get_auth_service(
+    db = Depends(get_db)
+) -> PrismaAPIKeyStore:
+    return PrismaAPIKeyStore(db)
