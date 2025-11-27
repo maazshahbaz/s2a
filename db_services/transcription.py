@@ -67,6 +67,13 @@ class TranscriptionJobService:
             include={'transcriptionResult': True}
         )
 
+    async def get_callback_url(self, job_id: str) -> Optional[str]:
+        """Get callback URL for a job"""
+        job = await self.db.transcriptionjob.find_unique(
+            where={'jobId': job_id}
+        )
+        return job.callbackUrl if job else None
+
     async def update_job_status(
         self,
         job_id: str,

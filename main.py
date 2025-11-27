@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     try:
         app.state.triton_service = TritonService()
     except Exception as e:
-        logger.error(f"Failed to initialize TritonService: {e}")
+        logger.error(f"Failed to initialize TritonService hjkyuiyyiuyi: {e}")
         app.state.triton_service = None
     
     logger.info("Initializing ASR microservice...")
