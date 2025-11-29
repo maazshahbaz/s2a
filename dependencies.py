@@ -63,7 +63,7 @@ async def process_audio_background_db(
                         await transcription_svc.save_transcription_result(
                             job_id=job_id,
                             text=raw_trans,
-                            diarization=diarization_data,
+                            diarization={'conversation':labeled_trans, "info":diar_info},
                             intelligence=intelligence_result,
                             confidence=1.0, 
                             rtf=0.0,
@@ -72,22 +72,12 @@ async def process_audio_background_db(
                         )
 
                     # Send webhook
-                    result = {
-                        'text': raw_trans,
-                        'duration': diar_info.get('audio_duration', 0),
-                        'rtf': 0.0,
-                        'processing_time': 0.0,
-                        'chunks_processed': diar_info.get('chunk_count', 0),
-                        'confidence': 1.0,
-                        'diarization': diarization_data,
-                        'intelligence': intelligence_result if analysis else None
-                    }
 
                     webhook_payload = WebhookPayload(
                         job_id=job_id,
-                        status="completed",
-                        result=result,
-                        processing_time=0.0
+                        transcription=raw_trans,
+                        ai_analysis=intelligence_result['analysis'],
+                        diarized_transcription=labeled_trans
                     )
                     await webhook_sender.send_webhook(callback_url, webhook_payload)
 

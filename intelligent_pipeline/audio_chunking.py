@@ -11,7 +11,8 @@ class AudioChunking:
         self.vad_aggressiveness = 2
         self.frame_ms = 30
         self.aggressiveness = 2
-        self.temp_dir = "/home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder"
+        self.temp_dir = "/tmp/s2a"
+        os.makedirs(self.temp_dir, exist_ok=True)
         
     def __frame_generator(self, audio):
         """Yield frames of audio (bytes) for VAD."""

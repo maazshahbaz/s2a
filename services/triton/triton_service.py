@@ -20,9 +20,9 @@ class TritonService:
     
     def __init__(self, diarization_url: str = "host.docker.internal:2001"):
         self.chunking = AudioChunking()
-        self.transcription = AsyncTranscriptionService()
+        self.transcription = AsyncTranscriptionService(url=diarization_url)
         self.diarization = AsyncDiarizationClient(url=diarization_url)
-        self.analysis = AsyncAnalysis()
+        self.analysis = AsyncAnalysis(url=diarization_url)
         self.global_diar_manager = GlobalDiarizationManager()
         self.merger = WordLevelDiarizationMerger()
         
@@ -70,12 +70,10 @@ class TritonService:
         chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
 
         
-        # Get basenames for transcription
-        chunk_basenames = [os.path.basename(path) for path in chunk_paths]
-        
+        # Use full paths for transcription so Triton can find the files
         transcription_tasks = [
-            self.transcription.transcribe_async(basename, request_id)
-            for basename in chunk_basenames
+            self.transcription.transcribe_async(path, request_id)
+            for path in chunk_paths
         ]
         
         transcriptions = await asyncio.gather(*transcription_tasks)

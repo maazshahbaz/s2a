@@ -35,6 +35,7 @@ services:
       - ./triton-service/model_repository:/models
       - model-cache:/.cache
       - /home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder:/data/uploads:ro
+      - /tmp/s2a:/tmp/s2a:ro
 
     # Restart policy
     restart: unless-stopped

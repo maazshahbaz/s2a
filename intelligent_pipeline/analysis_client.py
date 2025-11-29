@@ -4,14 +4,15 @@ import numpy as np
 import uuid
 
 class AsyncAnalysis:
-    def __init__(self):
+    def __init__(self, url: str = "localhost:2001"):
         self.model_name = "mistral-nemo"
         self.client = None
+        self.url = url
         
     async def initialize(self):
         """Initialize the async Triton client."""
         if self.client is None:
-            self.client = grpcclient_aio.InferenceServerClient(url="localhost:2001")
+            self.client = grpcclient_aio.InferenceServerClient(url=self.url)
     
     def __clean_output(self, output_text, request_id):
         """Clean and format the output."""
