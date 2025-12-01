@@ -14,11 +14,12 @@ export const authOptions = {
   session: {
     strategy: "jwt", // or "database"
   },
+
   callbacks: {
     async signIn({ user, account, profile }) {
       if (account.provider === "azure-ad") {
         try {
-          const backendUrl = process.env.BACKEND_URL || "http://localhost:8001/v1";
+          const backendUrl = process.env.BACKEND_URL;
           const email = user.email;
           const name = user.name;
           const externalId = user.id; // NextAuth normalizes the ID
@@ -28,6 +29,7 @@ export const authOptions = {
              console.error("API_KEY_SECRET not set");
              return false;
           }
+          console.log(`[NextAuth] Secret prefix: ${secret.substring(0, 4)}`);
 
           // Check if user exists
           // For GET request, body is empty string
@@ -76,17 +78,30 @@ export const authOptions = {
       }
       return true;
     },
-    async jwt({ token, account, user }) {
-      // Store access token in JWT
-      if (account) {
-        token.accessToken = account.access_token;
-      }
-      return token;
-    },
+    async jwt({ token, user, account }) {
+  // If the JWT failed to decrypt, `token` will be missing `.sub`
+  // This forces logout when NEXTAUTH_SECRET changes OR cookie is invalid
+  if (!token?.sub && !user) {
+    return null;
+  }
+
+  if (account) {
+    token.accessToken = account.access_token;
+  }
+  if (user) {
+    token.id = user.id;
+  }
+
+  return token;
+},
     async session({ session, token }) {
-      session.accessToken = token.accessToken;
-      return session;
-    },
+  if (!token?.sub) return null; // <--- prevent ghost sessions
+
+  session.accessToken = token.accessToken;
+  if (token.id) session.user.id = token.id;
+
+  return session;
+}
   },
 };
 

@@ -59,6 +59,7 @@ model AuthKey {
   userId            Int       @map("user_id")
   key               String    @unique @default(uuid())
   hash              String    @unique
+  maskedKey         String?   @map("masked_key")
   name              String
   keyType           String    @map("key_type")
   createdAt         DateTime  @default(now()) @map("created_at")

@@ -111,13 +111,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # React development
-        "http://localhost:8080",  # Vue development
-        "https://your-domain.com"  # Production domain
+        "https://dev.api.bytepulseai.com", # Next.js production container
+        "https://dev.bytepulseai.com", # Production domain
+        "https://bytepulseai.com", # Production domain
+        "https://api.bytepulseai.com", # Production domain
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Authorization", 
+        "Content-Type",
+        "x-user-id",
+        "x-timestamp",
+        "x-body-hash",
+        "x-signature"
+    ],
 )
 
 for router in all_routers:

@@ -1,24 +1,35 @@
-import { getServerSession } from "next-auth";
-
-export async function apiPost(path, data) {
-  const session = await getServerSession();
-  const token = session?.user?.token;
-
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}${path}`, {
-    method: "POST",
+/**
+ * Generic fetch wrapper calling the Next.js API Proxy
+ */
+async function apiRequest(path, method, body = null) {
+  // Remove leading slash if present to avoid double slashes with proxy prefix
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  
+  const res = await fetch(`/api/proxy/${cleanPath}`, {
+    method,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify(data),
-    cache: "no-store"
+    body: body ? JSON.stringify(body) : undefined,
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(json.message || "Request failed");
+    throw new Error(json.detail || json.message || json.error || "Request failed");
   }
 
   return json;
+}
+
+export async function apiPost(path, data) {
+  return apiRequest(path, "POST", data);
+}
+
+export async function apiGet(path) {
+  return apiRequest(path, "GET");
+}
+
+export async function apiDelete(path) {
+  return apiRequest(path, "DELETE");
 }

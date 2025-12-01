@@ -54,6 +54,7 @@ class APIKeyType(Enum):
 class APIKey(BaseModel):
     key_id: str
     key_hash: str
+    masked_key: Optional[str] = None
     name: str
     userId: int
     key_type: APIKeyType
@@ -101,6 +102,16 @@ class PrismaAPIKeyStore:
         key_suffix = secrets.token_urlsafe(32)
         api_key = f"{key_type.value}-{key_suffix}"
         key_hash = hash_api_key(api_key)
+        
+        # Generate masked key (first 2 chars of suffix + ... + last 4 chars)
+        # api_key format: prefix-suffix
+        # We want to show prefix + first 2 of suffix + ... + last 4 of suffix
+        # Or just first 2 of the whole key? User asked for "first 2 and last 4 letters of original key"
+        # Let's assume they mean the whole string.
+        if len(api_key) > 6:
+            masked_key = f"{api_key[:2]}...{api_key[-4:]}"
+        else:
+            masked_key = "***"
 
         # Default permissions
         permissions = kwargs.get('permissions', ["transcribe", "status", "stats"])
@@ -110,6 +121,7 @@ class PrismaAPIKeyStore:
             auth_key = await self.db.authkey.create(
                 data={
                     'hash': key_hash,
+                    'maskedKey': masked_key,
                     'userId':user_id,
                     'name': name,
                     'keyType': key_type.value,
@@ -218,6 +230,7 @@ class PrismaAPIKeyStore:
         return APIKey(
             key_id=auth_key.key,
             key_hash=auth_key.hash,
+            masked_key=auth_key.maskedKey,
             name=auth_key.name,
             key_type=APIKeyType(auth_key.keyType),
             created_at=auth_key.createdAt,

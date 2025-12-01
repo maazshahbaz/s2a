@@ -43,6 +43,14 @@ async def verify_hmac(
 
     # ---- Step 3: Recompute expected signature ----
     expected = compute_signature(x_user_id, x_timestamp, body_hash)
+    
+    # DEBUG LOGS
+    print(f"[HMAC DEBUG] Secret (first 4): {HMAC_SECRET[:4] if HMAC_SECRET else 'None'}")
+    print(f"[HMAC DEBUG] User ID: {x_user_id}")
+    print(f"[HMAC DEBUG] Timestamp: {x_timestamp}")
+    print(f"[HMAC DEBUG] Body Hash: {body_hash}")
+    print(f"[HMAC DEBUG] Expected Sig: {expected}")
+    print(f"[HMAC DEBUG] Received Sig: {x_signature}")
 
     if not hmac.compare_digest(expected, x_signature):
         raise HTTPException(401, "Invalid HMAC signature")

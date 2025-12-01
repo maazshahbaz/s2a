@@ -1,4 +1,4 @@
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, Depends
 from loguru import logger
 from webhook import webhook_sender, WebhookPayload
 import asyncio
@@ -8,6 +8,7 @@ from services.diarization_service import DiarizationService, store_diar_segments
 from config import get_diarization_settings
 from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore
+from db_services.user import UserService
 
 # Dependency to get services
 def get_services(request:Request):
@@ -124,3 +125,8 @@ def get_auth_service(
     db = Depends(get_db)
 ) -> PrismaAPIKeyStore:
     return PrismaAPIKeyStore(db)
+
+def get_user_service(
+    db = Depends(get_db)
+) -> UserService:
+    return UserService(db)

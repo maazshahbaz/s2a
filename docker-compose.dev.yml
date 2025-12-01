@@ -86,16 +86,12 @@ services:
       - S2A_API_HOST=0.0.0.0
       - S2A_API_PORT=8001
       - API_KEY_SECRET=${API_KEY_SECRET:-REDACTED_API_KEY_SECRET}
+      - HMAC_SECRET=REDACTED_HMAC_SECRET
     networks:
       - s2a-network-dev
     runtime: nvidia
     command: >
-      sh -c "
-      prisma generate &&
-      (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $$(ls prisma/migrations | head -1) && prisma migrate deploy)) &&
-      prisma py fetch &&
-      python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001
-      "
+      sh -c " prisma generate && (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $$(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001 "
     depends_on:
       redis-dev:
         condition: service_healthy
@@ -108,21 +104,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
-  
+
   nextjs-portal-dev:
     build:
       context: ./api_portal
-      dockerfile: Dockerfile   # dev Dockerfile
+      dockerfile: Dockerfile # dev Dockerfile
     container_name: nextjs_portal_dev
     ports:
       - "3001:3000"
     volumes:
-      - ./api_portal:/app          # source code for hot reload
-      - /app/node_modules          # keep container's node_modules
+      - ./api_portal:/app # source code for hot reload
+      - /app/node_modules # keep container's node_modules
+    env_file:
+      - ./api_portal/.env.development
     environment:
+      - HMAC_SECRET=REDACTED_HMAC_SECRET
+      - BACKEND_URL=https://dev.api.bytepulseai.com
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=https://dev.api.bytepulseai.com
       - NEXTAUTH_URL=https://dev.bytepulseai.com
+      - AZURE_AD_CLIENT_ID=REDACTED_AZURE_AD_CLIENT_ID
+      - AZURE_AD_CLIENT_SECRET=REDACTED_AZURE_AD_CLIENT_SECRET
+      - AZURE_AD_TENANT_ID=REDACTED_AZURE_AD_TENANT_ID
+      - AUTH_SECRET=REDACTED_NEXTAUTH_SECRET
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     command: npm run dev
     depends_on:
