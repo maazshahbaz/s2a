@@ -1,5 +1,5 @@
 from typing import List, Tuple, Dict
-from diarization import GlobalDiarizationManager
+from .diarization import GlobalDiarizationManager
 
 class WordLevelDiarizationMerger:
     """

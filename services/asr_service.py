@@ -72,6 +72,10 @@ class NeMoASRService:
         
     def _load_nemo_model(self):
         """Load NeMo Parakeet model - the only model supported"""
+        if os.getenv("S2A_DISABLE_LOCAL_ASR", "false").lower() == "true": #///
+            logger.info("Local ASR model loading disabled via S2A_DISABLE_LOCAL_ASR")
+            return #///
+
         try:
             logger.info(f"Loading NeMo Parakeet model: {self.model_name}")
             

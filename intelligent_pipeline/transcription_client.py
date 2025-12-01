@@ -5,14 +5,15 @@ import numpy as np
 import json
 
 class AsyncTranscriptionService:
-    def __init__(self):
+    def __init__(self, url: str = "localhost:2001"):
         self.model_name = "asr_model"
         self.triton_client = None
+        self.url = url
         
     async def initialize(self):
         """Initialize the async Triton client."""
         if self.triton_client is None:
-            self.triton_client = grpcclient_aio.InferenceServerClient(url="localhost:2001")
+            self.triton_client = grpcclient_aio.InferenceServerClient(url=self.url)
         
     async def transcribe_async(self, audio_file_path, request_id:str) -> Dict:
         """
