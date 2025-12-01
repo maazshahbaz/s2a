@@ -1,27 +1,13 @@
 # Base image
-FROM nvcr.io/nvidia/tritonserver:24.09-py3
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
 
-# Accept HF_TOKEN as build argument
-ARG HF_TOKEN
 
-# Set environment variables
-ENV NVIDIA_VISIBLE_DEVICES=0 \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    CUDA_VISIBLE_DEVICES=0 \
-    TRANSFORMERS_CACHE=/models/.cache \
-    HF_HOME=/models/.cache \
-    TORCH_HOME=/models/.cache
-
+COPY ./requirements-triton.txt requirements.txt
 # Install required Python packages
-RUN pip install --no-cache-dir \
-    transformers \
-    torch \
-    accelerate \
-    sentencepiece \
-    bitsandbytes
+RUN pip install -r requirements.txt
 
 # Create necessary directories
-RUN mkdir -p /models /models/.cache
+RUN mkdir -p /models /.cache
 
 # Expose ports
 EXPOSE 2000 2001 2002
