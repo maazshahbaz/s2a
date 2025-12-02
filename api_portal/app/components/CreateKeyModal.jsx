@@ -31,7 +31,7 @@ export default function CreateKeyModal({ isOpen, onClose, onCreate }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+      <div className="card max-w-md w-full">
         <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
           {newKey ? "API Key Created" : "Create New API Key"}
         </h2>
@@ -43,7 +43,7 @@ export default function CreateKeyModal({ isOpen, onClose, onCreate }) {
                 Please copy your API key now. You won't be able to see it again!
               </p>
             </div>
-            
+
             <div className="bg-gray-100 dark:bg-gray-900 p-3 rounded border border-gray-200 dark:border-gray-700 break-all font-mono text-sm">
               {newKey.api_key}
             </div>
@@ -83,14 +83,14 @@ export default function CreateKeyModal({ isOpen, onClose, onCreate }) {
               <button
                 type="button"
                 onClick={handleClose}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                className="button-primary"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="button-primary disabled:opacity-50"
               >
                 {isSubmitting ? "Creating..." : "Create Key"}
               </button>

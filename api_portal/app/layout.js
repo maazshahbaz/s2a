@@ -9,7 +9,17 @@ export default async function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <Providers serverSession={session}>{children}</Providers>
+        <header className="p-4 bg-white dark:bg-gray-800 shadow-sm">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            S2A Portal
+          </h1>
+        </header>
+        <main className="container fade-in">
+          <Providers serverSession={session}>{children}</Providers>
+        </main>
+        <footer className="p-4 text-center text-sm text-gray-600 dark:text-gray-400">
+          © {new Date().getFullYear()} S2A
+        </footer>
       </body>
     </html>
   );

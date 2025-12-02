@@ -6,7 +6,11 @@ export default function ApiKeyCard({ apiKey, onRevoke }) {
   const [isRevoking, setIsRevoking] = useState(false);
 
   const handleRevoke = async () => {
-    if (!confirm("Are you sure you want to revoke this API key? This action cannot be undone.")) {
+    if (
+      !confirm(
+        "Are you sure you want to revoke this API key? This action cannot be undone."
+      )
+    ) {
       return;
     }
 
@@ -21,7 +25,7 @@ export default function ApiKeyCard({ apiKey, onRevoke }) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-4 border border-gray-200 dark:border-gray-700">
+    <div className="card mb-4">
       <div className="flex justify-between items-start">
         <div>
           <h3 className="text-lg font-medium text-gray-900 dark:text-white">
@@ -31,11 +35,13 @@ export default function ApiKeyCard({ apiKey, onRevoke }) {
             {apiKey.masked_key}
           </div>
         </div>
-        <div className={`px-2 py-1 text-xs font-semibold rounded-full ${
-          apiKey.is_active 
-            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" 
-            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-        }`}>
+        <div
+          className={`px-2 py-1 text-xs font-semibold rounded-full ${
+            apiKey.is_active
+              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+          }`}
+        >
           {apiKey.is_active ? "Active" : "Revoked"}
         </div>
       </div>
@@ -50,7 +56,9 @@ export default function ApiKeyCard({ apiKey, onRevoke }) {
         <div>
           <span className="text-gray-500 dark:text-gray-400">Last Used:</span>
           <span className="ml-2 text-gray-900 dark:text-white">
-            {apiKey.last_used ? new Date(apiKey.last_used).toLocaleDateString() : "Never"}
+            {apiKey.last_used
+              ? new Date(apiKey.last_used).toLocaleDateString()
+              : "Never"}
           </span>
         </div>
         <div>
@@ -66,7 +74,7 @@ export default function ApiKeyCard({ apiKey, onRevoke }) {
           <button
             onClick={handleRevoke}
             disabled={isRevoking}
-            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium disabled:opacity-50"
+            className="button-danger text-sm disabled:opacity-50"
           >
             {isRevoking ? "Revoking..." : "Revoke Key"}
           </button>
