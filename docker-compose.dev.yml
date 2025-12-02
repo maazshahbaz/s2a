@@ -14,7 +14,7 @@ services:
       - s2a-network-dev
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,7 +38,11 @@ services:
       - s2a-network-dev
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-s2a-user} -d ${POSTGRES_DB:-s2a-db}" ]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-s2a-user} -d ${POSTGRES_DB:-s2a-db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -99,7 +103,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -119,9 +123,8 @@ services:
       - ./api_portal/.env.development
     environment:
       - HMAC_SECRET=REDACTED_HMAC_SECRET
-      - BACKEND_URL=https://dev.api.bytepulseai.com
+      - BACKEND_URL=http://localhost:8001
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=https://dev.api.bytepulseai.com
       - NEXTAUTH_URL=https://dev.bytepulseai.com
       - AZURE_AD_CLIENT_ID=REDACTED_AZURE_AD_CLIENT_ID
       - AZURE_AD_CLIENT_SECRET=REDACTED_AZURE_AD_CLIENT_SECRET
