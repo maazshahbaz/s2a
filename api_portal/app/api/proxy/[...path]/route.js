@@ -15,8 +15,8 @@ async function handler(req, { params }) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Construct backend URL
-  const { path: pathArray } = params;
+  // Construct backend URL (await params for Next.js 15+)
+  const { path: pathArray } = await params;
   const path = pathArray.join("/");
   const backendUrl = process.env.BACKEND_URL;
   const url = `${backendUrl}/${path}`;

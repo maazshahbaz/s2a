@@ -232,6 +232,7 @@ class PrismaAPIKeyStore:
             key_hash=auth_key.hash,
             masked_key=auth_key.maskedKey,
             name=auth_key.name,
+            userId=auth_key.userId,
             key_type=APIKeyType(auth_key.keyType),
             created_at=auth_key.createdAt,
             last_used=auth_key.lastUsed,

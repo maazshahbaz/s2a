@@ -123,13 +123,13 @@ services:
       - ./api_portal/.env.development
     environment:
       - HMAC_SECRET=REDACTED_HMAC_SECRET
-      - BACKEND_URL=http://localhost:8001
+      - BACKEND_URL=http://s2a-api-dev:8001/v1
       - NODE_ENV=development
       - NEXTAUTH_URL=https://dev.bytepulseai.com
       - AZURE_AD_CLIENT_ID=REDACTED_AZURE_AD_CLIENT_ID
       - AZURE_AD_CLIENT_SECRET=REDACTED_AZURE_AD_CLIENT_SECRET
       - AZURE_AD_TENANT_ID=REDACTED_AZURE_AD_TENANT_ID
-      - AUTH_SECRET=REDACTED_NEXTAUTH_SECRET
+      - NEXTAUTH_SECRET=REDACTED_NEXTAUTH_SECRET
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

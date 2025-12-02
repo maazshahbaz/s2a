@@ -16,6 +16,7 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [apiKeys, setApiKeys] = useState([]);
 
   useEffect(() => {
     if (session) {

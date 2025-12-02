@@ -62,7 +62,7 @@ async def create_key(
         return CreateKeyResponse(
             api_key=api_key,
             name=key_info.name,
-            key_type=key_info.key_type.value
+            key_type=key_info.key_type
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

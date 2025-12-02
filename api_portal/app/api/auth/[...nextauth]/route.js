@@ -2,6 +2,8 @@ import NextAuth from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { signPayload } from "../../../../lib/hmac";
 
+console.log("[NextAuth] Loaded secret:", process.env.NEXTAUTH_SECRET ? "YES (len=" + process.env.NEXTAUTH_SECRET.length + ")" : "NO");
+
 export const authOptions = {
   providers: [
     AzureADProvider({
@@ -11,11 +13,26 @@ export const authOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
+  debug: true, // Enable NextAuth debug mode
   session: {
     strategy: "jwt", // or "database"
   },
 
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      console.log("[NextAuth] Redirect Callback:", { url, baseUrl });
+      
+      // Force redirect to /auth-redirect if trying to go to login
+      if (url === baseUrl + "/login" || url === baseUrl + "/login/" || url.endsWith("/login")) {
+          return baseUrl + "/auth-redirect";
+      }
+
+      // Allows relative callback URLs
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // Allows callback URLs on the same origin
+      else if (new URL(url).origin === baseUrl) return url;
+      return baseUrl + "/auth-redirect";
+    },
     async signIn({ user, account, profile }) {
       if (account.provider === "azure-ad") {
         try {
@@ -82,7 +99,7 @@ export const authOptions = {
               external_id: externalId,
             });
             const createHeaders = signPayload(externalId, body, secret);
-            const createUrl = `${backendUrl}/users/`;
+            const createUrl = `${backendUrl}/users`;
 
             console.log(`[NextAuth] Creating user at: ${createUrl}`);
 
@@ -135,9 +152,11 @@ export const authOptions = {
       return true;
     },
     async jwt({ token, user, account }) {
+      console.log("[NextAuth] JWT Callback:", { token, user: !!user, account: !!account });
       // If the JWT failed to decrypt, `token` will be missing `.sub`
       // This forces logout when NEXTAUTH_SECRET changes OR cookie is invalid
       if (!token?.sub && !user) {
+        console.log("[NextAuth] JWT missing sub and no user, returning null");
         return null;
       }
 
@@ -151,7 +170,11 @@ export const authOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (!token?.sub) return null; // <--- prevent ghost sessions
+      console.log("[NextAuth] Session Callback:", { hasToken: !!token, sub: token?.sub });
+      if (!token?.sub) {
+        console.log("[NextAuth] Session Callback: Missing sub, returning null");
+        return null; // <--- prevent ghost sessions
+      }
 
       session.accessToken = token.accessToken;
       if (token.id) session.user.id = token.id;

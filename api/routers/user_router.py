@@ -40,7 +40,7 @@ def get_user_service(request: Request) -> UserService:
         raise HTTPException(status_code=503, detail="Database not initialized")
     return UserService(db)
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate,
     service: UserService = Depends(get_user_service)
