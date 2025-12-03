@@ -1,10 +1,12 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
-import ApiKeyCard from "../components/ApiKeyCard";
+import Header from "../components/Header";
+import Sidebar from "../components/Sidebar";
+import ApiKeyTable from "../components/ApiKeyTable";
 import CreateKeyModal from "../components/CreateKeyModal";
 
 export default function DashboardPage() {
@@ -49,66 +51,42 @@ export default function DashboardPage() {
   if (status === "loading" || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-xl text-gray-600 dark:text-gray-300">Loading...</div>
+        <div className="text-xl text-gray-600 dark:text-gray-300">
+          Loading...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-4xl mx-auto">
-        <header className="mb-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">
-              Welcome, {session.user.name}
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => signOut()}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors shadow-sm"
-            >
-              Sign Out
-            </button>
+    <div className="dashboard-layout">
+      <Header />
+      <div className="dashboard-main">
+        <Sidebar />
+        <main className="dashboard-content">
+          <div className="content-header">
+            <div>
+              <h2 className="content-title">API Keys</h2>
+              <p className="content-subtitle">
+                Manage your API keys for accessing the service
+              </p>
+            </div>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+              className="button-primary"
             >
               Create New API Key
             </button>
           </div>
-        </header>
 
-        <section>
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
-            Your API Keys
-          </h2>
-          
-          {apiKeys.length === 0 ? (
-            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
-              <p className="text-gray-500 dark:text-gray-400">
-                You haven't created any API keys yet.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {apiKeys.map((key) => (
-                <ApiKeyCard
-                  key={key.id} 
-                  apiKey={key} 
-                  onRevoke={handleRevokeKey} 
-                />
-              ))}
-            </div>
-          )}
-        </section>
+          <ApiKeyTable apiKeys={apiKeys} onRevoke={handleRevokeKey} />
 
-        <CreateKeyModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          onCreate={handleCreateKey}
-        />
+          <CreateKeyModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            onCreate={handleCreateKey}
+          />
+        </main>
       </div>
     </div>
   );
