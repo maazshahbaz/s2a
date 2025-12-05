@@ -205,9 +205,8 @@ export default function ApiKeyTable({ apiKeys, onRevoke }) {
               <th>Name</th>
               <th>Key</th>
               <th>Status</th>
-              <th>Created</th>
-              <th>Last Used</th>
-              <th>Usage</th>
+              <th>Created At</th>
+             
               <th>Actions</th>
             </tr>
           </thead>
@@ -228,12 +227,6 @@ export default function ApiKeyTable({ apiKeys, onRevoke }) {
                   </span>
                 </td>
                 <td>{new Date(key.created_at).toLocaleDateString()}</td>
-                <td>
-                  {key.last_used
-                    ? new Date(key.last_used).toLocaleDateString()
-                    : "Never"}
-                </td>
-                <td>{key.usage_count} requests</td>
                 <td>
                   {key.is_active ? (
                     <button
