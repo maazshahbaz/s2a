@@ -31,9 +31,10 @@ async def process_audio_background_db(
     from datetime import datetime, timezone
     
     try:
-        # Update job status to processing
+        # Update job status to processing and get job for createdAt
+        job = None
         if transcription_svc:
-            await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.now(timezone.utc))
+            job = await transcription_svc.update_job_status(job_id, 'processing')
 
         try:
             loop = asyncio.get_running_loop()
@@ -43,6 +44,14 @@ async def process_audio_background_db(
         
         def pipeline_callback(raw_trans, labeled_trans, analysis, diar_info):
             async def _handle_results():
+                # Calculate processing time from job creation
+                end_time = datetime.now(timezone.utc)
+                processing_time = 0.0
+                if job and job.createdAt:
+                    # Ensure createdAt is timezone-aware
+                    created_at = job.createdAt if job.createdAt.tzinfo else job.createdAt.replace(tzinfo=timezone.utc)
+                    processing_time = (end_time - created_at).total_seconds()
+                
                 # Save result to DB
                 if transcription_svc:
                     intelligence_result = None
@@ -60,7 +69,7 @@ async def process_audio_background_db(
                         intelligence=intelligence_result,
                         confidence=1.0, 
                         rtf=0.0,
-                        processing_time=0.0,
+                        processing_time=processing_time,
                         chunks=diar_info.get('chunk_count', 0)
                     )
 
