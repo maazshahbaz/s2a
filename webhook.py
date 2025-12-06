@@ -16,21 +16,10 @@ class WebhookPayload:
     job_id: str
     status: Optional[str] = None
     error: Optional[str] = None
-    timestamp: float = None
-    processing_time: Optional[float] = None
-    
-    # Intelligence-specific fields
-    intelligence_type: Optional[str] = None  # "quick", "enhanced", "transcription"
-    intelligence_data: Optional[Dict[str, Any]] = None
-    
-    # Additional fields for backward compatibility
     transcription: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     diarized_transcription: Optional[str] = None
 
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = time.time()
 
 class WebhookSender:
     def __init__(self, timeout: float = 30.0, max_retries: int = 3, retry_delay: float = 1.0):
@@ -79,17 +68,10 @@ class WebhookSender:
         # Prepare payload
         webhook_data = {
             "job_id": payload.job_id,
-            "status": payload.status,
-            "timestamp": payload.timestamp,
-            "processing_time": payload.processing_time
         }
 
-        # Add intelligence fields if present
-        if payload.intelligence_type:
-            webhook_data["intelligence_type"] = payload.intelligence_type
-
-        if payload.intelligence_data:
-            webhook_data["intelligence_data"] = payload.intelligence_data
+        if payload.status:
+            webhook_data["status"] = payload.status
 
         # Add error if present
         if payload.error:
