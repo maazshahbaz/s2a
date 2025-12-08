@@ -5,6 +5,7 @@ import torch
 import triton_python_backend_utils as pb_utils
 from transformers import AutoTokenizer
 from tensorrt_llm.runtime import ModelRunner, SamplingConfig
+import traceback
 
 
 class TritonPythonModel:
@@ -232,7 +233,6 @@ class TritonPythonModel:
         except Exception as e:
             error_message = f"Error during batch inference: {str(e)}"
             print(f"{error_message}")
-            import traceback
             traceback.print_exc()
             
             for _ in range(batch_size):

@@ -3,8 +3,6 @@ Optimized Triton Inference Server - Speaker Diarization
 Uses TensorRT for VAD and TitaNet, torch.compile + BF16 for MSDD
 Optimized for large audio files (~50 mins)
 
-NOTE: This version removes torchaudio dependency and uses pure PyTorch/NumPy
-for mel spectrogram extraction with identical parameters.
 """
 
 import os
@@ -16,6 +14,14 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional
 import uuid
 import math
+import torch
+import tensorrt as trt
+from sklearn.cluster import SpectralClustering, AgglomerativeClustering
+from sklearn.preprocessing import normalize
+from nemo.collections.asr.models import EncDecDiarLabelModel
+from scipy import signal
+import shutil
+
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -49,7 +55,6 @@ class MelSpectrogramExtractor:
         f_max: float = 8000.0,
         device: str = 'cuda'
     ):
-        import torch
         
         self.sample_rate = sample_rate
         self.n_fft = n_fft
@@ -96,7 +101,6 @@ class MelSpectrogramExtractor:
     
     def _create_mel_filterbank(self) -> 'torch.Tensor':
         """Create mel filterbank matrix with Slaney normalization"""
-        import torch
         
         # Frequency bins
         n_freqs = self.n_fft // 2 + 1
@@ -145,7 +149,6 @@ class MelSpectrogramExtractor:
         Returns:
             mel_spec: [batch, n_mels, time] tensor
         """
-        import torch
         
         # Ensure batch dimension
         if waveform.dim() == 1:
@@ -221,8 +224,6 @@ class TritonPythonModel:
     
     def initialize(self, args):
         """Initialize the model on Triton server startup"""
-        import torch
-        import tensorrt as trt
         
         # Suppress logging
         for logger_name in ['nemo_logger', 'nemo', 'pytorch_lightning']:
@@ -284,7 +285,6 @@ class TritonPythonModel:
     
     def _init_feature_extractor(self):
         """Initialize mel spectrogram feature extractor (pure PyTorch, no torchaudio)"""
-        import torch
         
         # Use custom MelSpectrogramExtractor - drop-in replacement for torchaudio
         self.mel_transform = MelSpectrogramExtractor(
@@ -302,8 +302,6 @@ class TritonPythonModel:
     
     def _init_vad_trt(self):
         """Initialize VAD TensorRT engine"""
-        import torch
-        import tensorrt as trt
         
         if not os.path.exists(self.vad_engine_path):
             raise FileNotFoundError(f"VAD TensorRT engine not found: {self.vad_engine_path}")
@@ -334,7 +332,6 @@ class TritonPythonModel:
     
     def _init_titanet_trt(self):
         """Initialize TitaNet TensorRT engine"""
-        import tensorrt as trt
         
         if not os.path.exists(self.titanet_engine_path):
             raise FileNotFoundError(f"TitaNet TensorRT engine not found: {self.titanet_engine_path}")
@@ -360,8 +357,7 @@ class TritonPythonModel:
     
     def _init_msdd_optimized(self):
         """Initialize MSDD with torch.compile and BF16"""
-        import torch
-        from nemo.collections.asr.models import EncDecDiarLabelModel
+
         
         print("[Optimized Diarization] Loading MSDD model...")
         
@@ -387,7 +383,7 @@ class TritonPythonModel:
     
     def _warmup_msdd(self):
         """Warm up MSDD to trigger compilation"""
-        import torch
+        
         
         # Create dummy inputs
         batch_size = 1
@@ -415,15 +411,12 @@ class TritonPythonModel:
         print("[Optimized Diarization] MSDD warmed up")
     
     def _init_clustering(self):
-        """Initialize clustering components"""
-        from sklearn.cluster import SpectralClustering, AgglomerativeClustering
-        
+        """Initialize clustering components"""        
         self.clustering_method = 'spectral'
         print("[Optimized Diarization] Clustering initialized")
     
     def extract_features(self, audio: np.ndarray) -> 'torch.Tensor':
         """Extract mel spectrogram features on GPU"""
-        import torch
         
         # Convert to tensor and move to GPU
         audio_tensor = torch.from_numpy(audio).float().to(self.device)
@@ -450,7 +443,6 @@ class TritonPythonModel:
         - minShapes: audio_signal:1x80x64
         - maxShapes: audio_signal:32x80x1024
         """
-        import torch
         
         n_mels = mel_features.shape[1]
         total_time_steps = mel_features.shape[2]
@@ -628,8 +620,6 @@ class TritonPythonModel:
         segments: List[Tuple[float, float]]
     ) -> Tuple[np.ndarray, List[Tuple[float, float]]]:
         """Extract speaker embeddings using TensorRT TitaNet"""
-        import torch
-        import tensorrt as trt
         
         embeddings = []
         embedding_times = []
@@ -700,7 +690,6 @@ class TritonPythonModel:
         - minShapes: audio_signal:1x80x80
         - maxShapes: audio_signal:64x80x480
         """
-        import torch
         
         # TensorRT constraints
         max_trt_batch = 64
@@ -796,8 +785,6 @@ class TritonPythonModel:
         num_speakers: int = 2
     ) -> np.ndarray:
         """Cluster embeddings to get speaker labels"""
-        from sklearn.cluster import SpectralClustering, AgglomerativeClustering
-        from sklearn.preprocessing import normalize
         
         if len(embeddings) < num_speakers:
             return np.zeros(len(embeddings), dtype=int)
@@ -837,7 +824,6 @@ class TritonPythonModel:
         initial_labels: np.ndarray
     ) -> np.ndarray:
         """Run MSDD for overlap detection and label refinement"""
-        import torch
         
         if len(embeddings) == 0:
             return initial_labels
@@ -903,7 +889,6 @@ class TritonPythonModel:
         Returns:
             Diarization results
         """
-        import torch
         
         total_duration = len(audio) / self.sample_rate
         print(f"[{request_id}] Processing {total_duration:.1f}s audio (full file)")
@@ -1044,7 +1029,6 @@ class TritonPythonModel:
         
         # Resample to 16kHz if needed (using scipy instead of librosa)
         if sample_rate != self.sample_rate:
-            from scipy import signal
             
             # Calculate resampling ratio
             num_samples = int(len(audio_data) * self.sample_rate / sample_rate)
@@ -1059,7 +1043,6 @@ class TritonPythonModel:
     
     def execute(self, requests):
         """Process inference requests"""
-        import torch
         
         responses = []
         
@@ -1116,7 +1099,6 @@ class TritonPythonModel:
     
     def finalize(self):
         """Cleanup on shutdown"""
-        import shutil
         
         print(f"[Optimized Diarization] Shutting down {self.model_instance_name}")
         
