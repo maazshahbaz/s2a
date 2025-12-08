@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap");
+
 :root {
   /* Dark theme color palette */
   --color-bg-primary: #0f1419;
@@ -40,7 +42,6 @@
   --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap");
 
 /* Global resets */
 html,
@@ -68,9 +69,11 @@ a {
 /* Dashboard Layout */
 .dashboard-layout {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background: var(--color-bg-primary);
+  overflow: hidden;
 }
 
 .dashboard-main {
@@ -183,6 +186,7 @@ a {
   position: sticky;
   top: 0;
   flex-shrink: 0;
+  transition: width var(--transition-medium);
 }
 
 .sidebar-header {
@@ -304,12 +308,47 @@ a {
   color: var(--color-text-primary);
 }
 
+/* Collapsed Sidebar */
+.sidebar.collapsed {
+  width: 72px;
+}
+
+.sidebar.collapsed .sidebar-header {
+  padding: 1rem 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar.collapsed .sidebar-logo {
+  justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+  margin-top: 0.25rem;
+}
+
+.sidebar.collapsed .sidebar-nav {
+  padding: 1rem 0.5rem;
+}
+
+.sidebar.collapsed .sidebar-item {
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.sidebar.collapsed .sidebar-icon {
+  margin: 0;
+}
+
 /* Main Content */
 .dashboard-content {
   flex: 1;
   padding: 2rem;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--color-bg-primary);
+  height: 100vh;
+  max-height: 100vh;
 }
 
 .content-header {
