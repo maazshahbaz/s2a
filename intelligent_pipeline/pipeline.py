@@ -1,16 +1,16 @@
-from intelligent_pipeline.audio_chunking import AudioChunking
-from intelligent_pipeline.transcription_client import AsyncTranscriptionService
-from intelligent_pipeline.diarization_client import AsyncDiarizationClient
-from intelligent_pipeline.analysis_client import AsyncAnalysis
-from intelligent_pipeline.diarization import GlobalDiarizationManager
-from intelligent_pipeline.transcript_merger import WordLevelDiarizationMerger
+from audio_chunking import AudioChunking
+from transcription_client import AsyncTranscriptionService
+from diarization_client import AsyncDiarizationClient
+from analysis_client import AsyncAnalysis
+from diarization import GlobalDiarizationManager
+from transcript_merger import WordLevelDiarizationMerger
 
 import asyncio
 import os
 import soundfile as sf
 from typing import Tuple, Dict
 
-class TritonService:
+class AsyncCompletePipelineWithGlobalDiarization:
     """
     Complete pipeline that runs diarization on COMPLETE audio FIRST,
     then uses those global speaker labels for all chunks.
@@ -18,11 +18,11 @@ class TritonService:
     This ensures consistent speaker IDs (e.g., exactly 2 speakers for a 2-person call).
     """
     
-    def __init__(self, diarization_url: str = "host.docker.internal:2001"):
+    def __init__(self, diarization_url: str = "localhost:2001"):
         self.chunking = AudioChunking()
-        self.transcription = AsyncTranscriptionService(url=diarization_url)
+        self.transcription = AsyncTranscriptionService()
         self.diarization = AsyncDiarizationClient(url=diarization_url)
-        self.analysis = AsyncAnalysis(url=diarization_url)
+        self.analysis = AsyncAnalysis()
         self.global_diar_manager = GlobalDiarizationManager()
         self.merger = WordLevelDiarizationMerger()
         
@@ -70,10 +70,12 @@ class TritonService:
         chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
 
         
-        # Use full paths for transcription so Triton can find the files
+        # Get basenames for transcription
+        chunk_basenames = [os.path.basename(path) for path in chunk_paths]
+        
         transcription_tasks = [
-            self.transcription.transcribe_async(path, request_id)
-            for path in chunk_paths
+            self.transcription.transcribe_async(basename, request_id)
+            for basename in chunk_basenames
         ]
         
         transcriptions = await asyncio.gather(*transcription_tasks)
@@ -105,9 +107,3 @@ class TritonService:
         
         return raw_transcription, labeled_transcription, analysis, diarization_info
 
-def run_async_pipeline(audio_path: str, request_id: str, callback = None):
-    """Convenience function to run the pipeline synchronously (e.g. for scripts)"""
-    pipeline = TritonService()
-    raw_trans, labeled_trans, analysis, diar_info = asyncio.run(pipeline.run_pipeline_async(audio_path, request_id))
-    if callback:
-        callback(raw_trans, labeled_trans, analysis, diar_info)

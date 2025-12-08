@@ -85,12 +85,16 @@ services:
       # Performance settings
       - S2A_LOG_LEVEL=INFO
       - S2A_ENABLE_MIXED_PRECISION=true
-      - S2A_GPU_MEMORY_FRACTION=0.8
+      - S2A_GPU_MEMORY_FRACTION=0.3 #///
+      - S2A_DISABLE_LOCAL_ASR=true #///
       - S2A_NUM_WORKERS=4
 
       # API settings
       - S2A_API_HOST=0.0.0.0
       - S2A_API_PORT=8001
+
+      # Webhook configuration
+      - WEBHOOK_FILE=/app/logs/webhook_data.jsonl
 
     networks:
       - s2a-network

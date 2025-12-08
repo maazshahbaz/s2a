@@ -14,18 +14,12 @@ from urllib.parse import urlparse
 @dataclass
 class WebhookPayload:
     job_id: str
-    status: str
-    result: Optional[Dict[str, Any]] = None
+    status: Optional[str] = None
     error: Optional[str] = None
-    timestamp: float = None
-    processing_time: Optional[float] = None
-    # Intelligence-specific fields
-    intelligence_type: Optional[str] = None  # "quick", "enhanced", "transcription"
-    intelligence_data: Optional[Dict[str, Any]] = None
+    transcription: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
+    diarized_transcription: Optional[str] = None
 
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = time.time()
 
 class WebhookSender:
     def __init__(self, timeout: float = 30.0, max_retries: int = 3, retry_delay: float = 1.0):
@@ -74,23 +68,24 @@ class WebhookSender:
         # Prepare payload
         webhook_data = {
             "job_id": payload.job_id,
-            "status": payload.status,
-            "timestamp": payload.timestamp,
-            "processing_time": payload.processing_time
         }
 
-        # Add intelligence fields if present
-        if payload.intelligence_type:
-            webhook_data["intelligence_type"] = payload.intelligence_type
+        if payload.status:
+            webhook_data["status"] = payload.status
 
-        if payload.intelligence_data:
-            webhook_data["intelligence"] = payload.intelligence_data
-
-        if payload.result:
-            webhook_data["result"] = payload.result
-            
+        # Add error if present
         if payload.error:
             webhook_data["error"] = payload.error
+            
+        # Add optional backward-compatible fields
+        if payload.transcription:
+            webhook_data["transcription"] = payload.transcription
+            
+        if payload.ai_analysis:
+            webhook_data["ai_analysis"] = payload.ai_analysis
+            
+        if payload.diarized_transcription:
+            webhook_data["diarized_transcription"] = payload.diarized_transcription
         
         # Send with retries
         last_error = None

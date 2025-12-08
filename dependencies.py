@@ -4,11 +4,11 @@ from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
 from generated.prisma import Prisma
-from services.diarization_service import DiarizationService, store_diar_segments
-from config import get_diarization_settings
 from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore
 from db_services.user import UserService
+from services.triton.triton_service import TritonService, run_async_pipeline
+
 
 # Dependency to get services
 def get_services(request:Request):
@@ -37,59 +37,53 @@ async def process_audio_background_db(
         # Update job status to processing
         if transcription_svc:
             await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.now(timezone.utc))
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # Submit to Redis-based batch processor
-        result = await batch_proc.submit_job(
-            job_id=job_id,
-            audio_path=audio_path,
-            include_intelligence=include_intelligence,
-            callback_url=callback_url,
-        )
+        def pipeline_callback(raw_trans, labeled_trans, analysis, diar_info):
+            async def _handle_results():
+                # Save result to DB
+                if transcription_svc:
+                    intelligence_result = None
+                    if analysis:
+                        try:
+                            import json
+                            intelligence_result = json.loads(analysis) if isinstance(analysis, str) else analysis
+                        except:
+                            intelligence_result = {"raw": analysis}
 
-        # Job is processing asynchronously - webhook will be sent when complete
-        if result and result.get('status') == 'queued':
-            logger.info(f"Job {job_id} submitted to Redis queue: {result.get('num_chunks')} chunks")
-            # Launch diarization in the background (mandatory)
-            async def _run_diar():
-                try:
-                    diar_cfg = get_diarization_settings()
-                    diar = DiarizationService(model_name=diar_cfg.model_name, max_speakers=diar_cfg.max_speakers)
-                    
-                    logger.info(f"Starting diarization for job {job_id}")
-                    segments = await diar.run(audio_path, max_speakers=diar_cfg.max_speakers)
-                    num_spk = len(sorted({s.speaker for s in segments}))
-                    
-                    await store_diar_segments(batch_proc.redis_client, job_id, segments, num_spk)
-                    logger.info(f"Diarization completed for job {job_id}: {len(segments)} segments, {num_spk} speakers")
-                    
-                except Exception as e:
-                    logger.error(f"Diarization failed for job {job_id}: {e}")
-                    # Store failure status in Redis so chunk_worker knows it failed
-                    try:
-                        await batch_proc.redis_client.set(
-                            f"diar:{job_id}:status",
-                            "failed",
-                            ex=3600  # Expire after 1 hour
-                        )
-                    except Exception:
-                        pass
-            
-            asyncio.create_task(_run_diar())
-            return  # Exit early; completion orchestrated after stitching+diar
+                    await transcription_svc.save_transcription_result(
+                        job_id=job_id,
+                        text=raw_trans,
+                        diarization={'conversation':labeled_trans, "info":diar_info},
+                        intelligence=intelligence_result,
+                        confidence=1.0, 
+                        rtf=0.0,
+                        processing_time=0.0,
+                        chunks=diar_info.get('chunk_count', 0)
+                    )
 
-        # For failed submissions, send error webhook
-        if not result or result.get('status') == 'failed':
-            error_msg = result.get('error', 'Failed to submit job to queue') if result else 'Submission failed'
-            if transcription_svc:
-                await transcription_svc.update_job_status(job_id, 'failed', error_message=error_msg)
+                # Webhook
+                webhook_payload = WebhookPayload(
+                    job_id=job_id,
+                    transcription=raw_trans,
+                    ai_analysis=intelligence_result.get("analysis"),
+                    diarized_transcription=labeled_trans
+                )
+                await webhook_sender.send_webhook(callback_url, webhook_payload)
 
-            webhook_payload = WebhookPayload(
-                job_id=job_id,
-                status="failed",
-                error=error_msg
-            )
-            asyncio.create_task(webhook_sender.send_webhook(callback_url, webhook_payload))
-        
+            # Schedule it properly from thread
+            asyncio.run_coroutine_threadsafe(_handle_results(), loop)
+
+
+        # Run pipeline in a separate thread to avoid blocking main loop
+        # run_async_pipeline is synchronous and uses asyncio.run() internally
+
+        await loop.run_in_executor(None, run_async_pipeline, audio_path, job_id, pipeline_callback)
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")
         

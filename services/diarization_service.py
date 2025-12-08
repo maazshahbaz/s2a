@@ -201,8 +201,7 @@ class DiarizationService:
                 
                 # Re-identify speakers across chunks using TitaNet embeddings
                 logger.info("Re-identifying speakers across chunks with TitaNet...")
-                merged_segments = await self._merge_and_reidentify(chunk_results, embeddings)
-                
+                merged_segments = await self._merge_and_reidentify(chunk_results, embeddings)          
                 num_speakers = len(set(seg.speaker for seg in merged_segments))
                 logger.info(f"Multi-chunk diarization complete: {len(merged_segments)} segments, {num_speakers} speakers")
                 
