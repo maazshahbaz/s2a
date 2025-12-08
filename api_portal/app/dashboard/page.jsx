@@ -55,10 +55,9 @@ export default function DashboardPage() {
     if (!key) return "sk_live_...****";
     return key.substring(0, 12) + "..." + key.slice(-4);
   };
-
-  const getActiveKeys = () => apiKeys.filter((key) => key.status === "active");
+console.log(apiKeys)
+  const getActiveKeys = () => apiKeys.filter((key) => key.is_active === true);
   const getRecentKeys = () => apiKeys.slice(0, 2);
-
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
   };
@@ -111,10 +110,6 @@ export default function DashboardPage() {
               <div className="stat-content">
                 <span className="stat-label">Total API Keys</span>
                 <span className="stat-value">{apiKeys.length}</span>
-                <span className="stat-trend positive">
-                  +{apiKeys.length > 0 ? Math.min(apiKeys.length, 2) : 0} this
-                  month
-                </span>
               </div>
               <div className="stat-icon accent">
                 <svg
@@ -132,7 +127,6 @@ export default function DashboardPage() {
               <div className="stat-content">
                 <span className="stat-label">Auth Keys</span>
                 <span className="stat-value">{getActiveKeys().length}</span>
-                <span className="stat-trend neutral">All active</span>
               </div>
               <div className="stat-icon primary">
                 <svg
@@ -150,18 +144,17 @@ export default function DashboardPage() {
 
             <div className="stat-card">
               <div className="stat-content">
-                <span className="stat-label">Avg Response Time</span>
-                <span className="stat-value">--</span>
-                <span className="stat-trend positive">--</span>
+                <span className="stat-label">Revoked Keys</span>
+                <span className="stat-value">{apiKeys.length-getActiveKeys().length}</span>
               </div>
-              <div className="stat-icon accent">
+             <div className="stat-icon danger">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="currentColor"
+                  stroke="red"
                   strokeWidth={2}
                 >
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 </svg>
               </div>
             </div>
@@ -210,38 +203,18 @@ export default function DashboardPage() {
                             {key.status || "active"}
                           </span>
                         </div>
-                        <button className="api-key-menu">
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            style={{ width: 16, height: 16 }}
-                          >
-                            <circle cx="12" cy="5" r="1.5" />
-                            <circle cx="12" cy="12" r="1.5" />
-                            <circle cx="12" cy="19" r="1.5" />
-                          </svg>
-                        </button>
+                       
                       </div>
                       <div className="api-key-value">
                         <span className="api-key-masked">
                           {maskKey(key.key)}
                         </span>
                         <div className="api-key-actions">
-                          <button className="api-key-action" title="View key">
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
+                       
                           <button
                             className="api-key-action"
                             title="Copy key"
-                            onClick={() => copyToClipboard(key.key)}
+                            onClick={() => copyToClipboard(key.masked_key)}
                           >
                             <svg
                               viewBox="0 0 24 24"
@@ -263,11 +236,8 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div className="api-key-meta">
-                        <span>Created: {formatDate(key.createdAt)}</span>
-                        <span>
-                          Last used:{" "}
-                          {key.lastUsed ? formatDate(key.lastUsed) : "Never"}
-                        </span>
+                        <span>Created: {formatDate(key.created_at)}</span>
+                        
                       </div>
                     </div>
                   ))}

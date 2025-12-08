@@ -438,6 +438,11 @@ a {
   color: var(--color-primary);
 }
 
+.stat-icon.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+}
+
 .stat-icon.purple {
   background: rgba(139, 92, 246, 0.15);
   color: #a78bfa;
@@ -529,6 +534,11 @@ a {
   text-transform: lowercase;
   background: var(--color-success-bg);
   color: var(--color-success);
+}
+
+.api-key-badge.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
 }
 
 .api-key-menu {

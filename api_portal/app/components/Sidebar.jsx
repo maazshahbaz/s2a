@@ -101,7 +101,7 @@ export default function Sidebar() {
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
           </div>
-          {!isCollapsed && <span className="sidebar-logo-text">DevAPI</span>}
+          {!isCollapsed && <span className="sidebar-logo-text">S2A Portal</span>}
         </div>
         {isCollapsed ? (
           <button

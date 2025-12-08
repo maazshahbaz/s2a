@@ -60,7 +60,7 @@ export default function SdkDocsPage() {
               fontSize: "0.75rem",
               fontWeight: 600,
             }}>
-              v1.0.4
+              v1.0.0
             </span>
           </div>
           <p className="content-subtitle" style={{ marginTop: "-1rem", marginBottom: "2rem" }}>
@@ -452,6 +452,7 @@ print(f"Job ID: {job.job_id}")`
                 <div style={{ fontSize: "0.8125rem" }}>
                   <strong style={{ color: "var(--color-text-primary)" }}>Parameters:</strong>
                   <ul style={{ color: "var(--color-text-secondary)", marginTop: "0.5rem", paddingLeft: "1.25rem" }}>
+                    <li><code>audioPath</code> (required) - Path of audio to be sent</li>
                     <li><code>callbackUrl</code> (required) - URL to receive webhook notifications</li>
                     <li><code>enhanceAudio</code> - Enable audio enhancement (default: true)</li>
                     <li><code>priority</code> - Processing priority (LOW, NORMAL, HIGH)</li>

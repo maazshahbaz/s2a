@@ -209,42 +209,21 @@ export default function ApiKeysPage() {
                   <div className="api-key-header">
                     <div className="api-key-name">
                       {key.name || "Unnamed Key"}
-                      <span className="api-key-badge">
+                      <span className={`api-key-badge ${key.is_active ? "" : "danger"}`}>
                         {key.is_active ? "active" : "revoked"}
                       </span>
                     </div>
-                    <button className="api-key-menu">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        style={{ width: 16, height: 16 }}
-                      >
-                        <circle cx="12" cy="5" r="1.5" />
-                        <circle cx="12" cy="12" r="1.5" />
-                        <circle cx="12" cy="19" r="1.5" />
-                      </svg>
-                    </button>
                   </div>
                   <div className="api-key-value">
                     <span className="api-key-masked">
                       {maskKey(key.masked_key || key.key)}
                     </span>
                     <div className="api-key-actions">
-                      <button className="api-key-action" title="View key">
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      </button>
+                     
                       <button
                         className="api-key-action"
                         title="Copy key"
-                        onClick={() => copyToClipboard(key.masked_key || key.key)}
+                        onClick={() => copyToClipboard(key.masked_key)}
                       >
                         <svg
                           viewBox="0 0 24 24"
@@ -260,7 +239,6 @@ export default function ApiKeysPage() {
                   </div>
                   <div className="api-key-meta">
                     <span>Created: {formatDate(key.created_at)}</span>
-                    <span>Last used: {formatLastUsed(key.last_used)}</span>
                   </div>
                 </div>
               ))
