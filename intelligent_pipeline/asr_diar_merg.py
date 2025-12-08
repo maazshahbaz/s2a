@@ -62,7 +62,7 @@ class WordLevelDiarizationMerger:
         
         for word_info in aligned_words:
             speaker = word_info['speaker']
-            text = word_info.get('text', word_info.get('segment', ''))
+            text = word_info.get('text', word_info.get('word', ''))
             
             if speaker != current_speaker:
                 # Speaker change - save previous segment
