@@ -1,6 +1,6 @@
 name: "diarization_model"
 backend: "python"
-max_batch_size: 2
+max_batch_size: 1
 
 # Input: Audio waveform (variable length)
 input [
