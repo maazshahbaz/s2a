@@ -37,19 +37,11 @@ class AsyncCompletePipelineWithGlobalDiarization:
         audio_data, sample_rate = sf.read(audio_path)
         return len(audio_data) / sample_rate
     
-    async def run_pipeline_async(self, audio_path: str, request_id) -> Tuple[str, str, str, Dict]:
+    async def _run_global_diarization(self, audio_path: str, request_id) -> Dict:
         """
-        Run complete pipeline with GLOBAL diarization.
-        
-        Key difference: Diarization runs on COMPLETE audio FIRST,
-        then ASR runs on chunks, and results are merged using global speaker labels.
-        
-        Returns:
-            (raw_transcription, labeled_transcription, analysis, diarization_info)
+        Step 1: Run GLOBAL diarization on COMPLETE audio.
+        Returns diarization summary.
         """
-        
-        # Step 1: Run GLOBAL diarization on COMPLETE audio FIRST
-        
         await self.diarization.connect()
         
         # Get audio duration
@@ -63,16 +55,21 @@ class AsyncCompletePipelineWithGlobalDiarization:
             global_diar_result, 
             audio_duration
         )
-
         
-        # Step 2: Create chunks for ASR (ASR may need smaller chunks)
-
+        return diar_summary
+    
+    async def _run_chunking_and_transcription(self, audio_path: str, request_id) -> Tuple:
+        """
+        Step 2: Create chunks and transcribe them.
+        Returns (transcriptions, chunk_paths, chunk_timings).
+        """
+        # Create chunks for ASR
         chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
-
         
         # Get basenames for transcription
         chunk_basenames = [os.path.basename(path) for path in chunk_paths]
         
+        # Transcribe all chunks in parallel
         transcription_tasks = [
             self.transcription.transcribe_async(basename, request_id)
             for basename in chunk_basenames
@@ -80,22 +77,42 @@ class AsyncCompletePipelineWithGlobalDiarization:
         
         transcriptions = await asyncio.gather(*transcription_tasks)
         
+        return transcriptions, chunk_paths, chunk_timings
+    
+    async def run_pipeline_async(self, audio_path: str, request_id) -> Tuple[str, str, str, Dict]:
+        """
+        Run complete pipeline with GLOBAL diarization.
+        
+        Key difference: Diarization and transcription run IN PARALLEL,
+        then results are merged using global speaker labels.
+        
+        Returns:
+            (raw_transcription, labeled_transcription, analysis, diarization_info)
+        """
+        
+        # Steps 1 and 2: Run diarization and transcription IN PARALLEL
+        diar_task = self._run_global_diarization(audio_path, request_id)
+        transcription_task = self._run_chunking_and_transcription(audio_path, request_id)
+        
+        diar_summary, (transcriptions, chunk_paths, chunk_timings) = await asyncio.gather(
+            diar_task,
+            transcription_task
+        )
+        
+        # Step 3: Merge transcriptions with global diarization
         raw_transcription, labeled_transcription, aligned_words = \
             self.merger.merge_all_chunks_with_global_diarization(
                 transcriptions,
                 self.global_diar_manager,
                 chunk_timings
             )
-
         
-        # Step 5: Analysis (using RAW transcription, NOT labeled)
-        
+        # Step 4: Analysis (using RAW transcription, NOT labeled)
         # CRITICAL: Pass raw_transcription to analysis, NOT labeled_transcription
         analysis_task = self.analysis.analyze_call_async(raw_transcription, request_id)
         delete_task = self.__delete_chunks_async(chunk_paths)
         
         analysis, _ = await asyncio.gather(analysis_task, delete_task)
-
         
         await self.diarization.close()
         
@@ -106,4 +123,3 @@ class AsyncCompletePipelineWithGlobalDiarization:
         diarization_info['chunk_timings'] = chunk_timings
         
         return raw_transcription, labeled_transcription, analysis, diarization_info
-
