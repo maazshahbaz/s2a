@@ -1,121 +1,158 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export default function Sidebar() {
-  const [activeItem, setActiveItem] = useState("api-keys");
+  const pathname = usePathname();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const navItems = [
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      href: "/dashboard",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+      ),
+    },
+    {
+      id: "api-keys",
+      label: "API Keys",
+      href: "/dashboard/api-keys",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+        </svg>
+      ),
+    },
+    {
+      id: "auth-keys",
+      label: "Auth Keys",
+      href: "/dashboard/auth-keys",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      ),
+    },
+    {
+      id: "sdk-docs",
+      label: "SDK Docs",
+      href: "/dashboard/sdk-docs",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
+        </svg>
+      ),
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      href: "/dashboard/settings",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      ),
+    },
+  ];
+
+  const isActive = (href) => {
+    if (href === "/dashboard") {
+      return pathname === "/dashboard";
+    }
+    return pathname.startsWith(href);
+  };
 
   return (
-    <>
-      <style jsx>{`
-        .sidebar {
-          width: 240px;
-          background: #1e293b;
-          border-right: 1px solid #334155;
-          padding: 1.5rem 0;
-          height: calc(100vh - 64px);
-          position: sticky;
-          top: 64px;
-          overflow-y: auto;
-        }
-
-        .sidebar-nav {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-          padding: 0 0.75rem;
-        }
-
-        .sidebar-item {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1rem;
-          background: transparent;
-          border: none;
-          border-radius: 0.5rem;
-          color: #94a3b8;
-          font-size: 0.875rem;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s;
-          width: 100%;
-          text-align: left;
-        }
-
-        .sidebar-item:hover {
-          background: #0f172a;
-          color: #cbd5e1;
-        }
-
-        .sidebar-item.active {
-          background: rgba(37, 99, 235, 0.1);
-          color: #3b82f6;
-          border: 1px solid rgba(37, 99, 235, 0.2);
-        }
-
-        .sidebar-item.active:hover {
-          background: rgba(37, 99, 235, 0.15);
-          color: #60a5fa;
-        }
-
-        .sidebar-icon {
-          width: 20px;
-          height: 20px;
-          flex-shrink: 0;
-        }
-
-        .sidebar-text {
-          flex: 1;
-        }
-
-        @media (max-width: 768px) {
-          .sidebar {
-            width: 64px;
-            padding: 1rem 0;
-          }
-
-          .sidebar-nav {
-            padding: 0 0.5rem;
-          }
-
-          .sidebar-item {
-            justify-content: center;
-            padding: 0.75rem;
-          }
-
-          .sidebar-text {
-            display: none;
-          }
-        }
-      `}</style>
-
-      <aside className="sidebar">
-        <nav className="sidebar-nav">
-          <button
-            className={`sidebar-item ${
-              activeItem === "api-keys" ? "active" : ""
-            }`}
-            onClick={() => setActiveItem("api-keys")}
-          >
+    <aside className={`sidebar ${isCollapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-header">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">
             <svg
-              className="sidebar-icon"
+              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
+              strokeWidth={2.5}
+              style={{ width: 18, height: 18 }}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-              />
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
-            <span className="sidebar-text">API Keys</span>
+          </div>
+          {!isCollapsed && <span className="sidebar-logo-text">S2A</span>}
+        </div>
+        {!isCollapsed && (
+          <button
+            className="sidebar-toggle"
+            onClick={() => setIsCollapsed(true)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              style={{ width: 16, height: 16 }}
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
           </button>
-        </nav>
-      </aside>
-    </>
+        )}
+      </div>
+
+      <nav className="sidebar-nav">
+        {navItems.map((item) => (
+          <Link
+            key={item.id}
+            href={item.href}
+            className={`sidebar-item ${isActive(item.href) ? "active" : ""}`}
+          >
+            <span className="sidebar-icon">{item.icon}</span>
+            {!isCollapsed && <span className="sidebar-text">{item.label}</span>}
+          </Link>
+        ))}
+      </nav>
+
+      {!isCollapsed && (
+        <div className="sidebar-footer">
+          <div className="sidebar-version">
+            <span className="sidebar-version-label">API Version</span>
+            <span className="sidebar-version-number">v1.0.0</span>
+          </div>
+        </div>
+      )}
+    </aside>
   );
 }
