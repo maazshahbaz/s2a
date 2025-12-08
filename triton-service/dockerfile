@@ -1,10 +1,12 @@
 # Base image
 FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
 
-
 COPY ./requirements-triton.txt requirements.txt
-# Install required Python packages
+
 RUN pip install -r requirements.txt
+
+# Reinstall cuda-python 12.x in case nemo_toolkit overwrote it
+RUN pip install "cuda-python>=12.3,<13.0" --force-reinstall
 
 # Create necessary directories
 RUN mkdir -p /models /.cache
