@@ -2,17 +2,17 @@
 
 :root {
   /* Dark theme color palette */
-  --color-bg-primary: #0f1419;
-  --color-bg-secondary: #1a1f2e;
-  --color-bg-tertiary: #232a3b;
-  --color-bg-card: #1e2536;
-  --color-border: #2d3748;
-  --color-border-light: #374155;
+  --color-bg-primary: #020408;
+  --color-bg-secondary: #0b0e14;
+  --color-bg-tertiary: #1a1d24;
+  --color-bg-card: #0b0e14;
+  --color-border: #1f2937;
+  --color-border-light: #374151;
 
   /* Accent colors */
-  --color-accent: #00d8b4;
-  --color-accent-hover: #00f0c8;
-  --color-accent-glow: rgba(0, 216, 180, 0.2);
+  --color-accent: #00e5ff;
+  --color-accent-hover: #33ebff;
+  --color-accent-glow: rgba(0, 229, 255, 0.15);
   --color-primary: #3b82f6;
   --color-primary-hover: #60a5fa;
 
@@ -22,8 +22,8 @@
   --color-text-muted: #64748b;
 
   /* Status colors */
-  --color-success: #00d8b4;
-  --color-success-bg: rgba(0, 216, 180, 0.15);
+  --color-success: #00e5ff;
+  --color-success-bg: rgba(0, 229, 255, 0.1);
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
   --color-danger-hover: #dc2626;
