@@ -241,6 +241,259 @@ if __name__ == "__main__":
               </div>
             </div>
           </div>
+
+          {/* API Reference Section */}
+          <div className="section-card" style={{ marginTop: "2rem" }}>
+            <div className="section-header">
+              <h3 className="section-title">API Reference</h3>
+            </div>
+
+            <div className="api-doc-content" style={{ paddingBottom: "1rem" }}>
+              <h4
+                style={{
+                  fontSize: "0.95rem",
+                  fontWeight: "600",
+                  color: "var(--color-text-primary)",
+                  marginBottom: "1rem",
+                  marginTop: "0",
+                }}
+              >
+                Async Transcription
+              </h4>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.75rem",
+                  alignItems: "center",
+                  marginBottom: "1.5rem",
+                }}
+              >
+                <span
+                  style={{
+                    background: "var(--color-success-bg)",
+                    color: "var(--color-success)",
+                    padding: "0.25rem 0.6rem",
+                    borderRadius: "6px",
+                    fontSize: "0.75rem",
+                    fontWeight: "700",
+                  }}
+                >
+                  POST
+                </span>
+                <code
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-text-primary)",
+                    background: "var(--color-bg-tertiary)",
+                    padding: "0.25rem 0.6rem",
+                    borderRadius: "6px",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  /transcribe
+                </code>
+              </div>
+
+              <p
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontSize: "0.9rem",
+                  marginBottom: "1.5rem",
+                  lineHeight: "1.6",
+                }}
+              >
+                Initiate an asynchronous transcription job for audio/video
+                files. This endpoint handles large files and processes them in
+                the background.
+              </p>
+
+              <h5
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "1rem",
+                }}
+              >
+                Headers
+              </h5>
+              <div className="table-container" style={{ marginBottom: "2rem" }}>
+                <table className="api-key-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "30%" }}>Name</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-accent)",
+                        }}
+                      >
+                        X-API-Key
+                      </td>
+                      <td>Your secret API key</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h5
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "1rem",
+                }}
+              >
+                Form Data Parameters
+              </h5>
+              <div className="table-container" style={{ marginBottom: "2rem" }}>
+                <table className="api-key-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "30%" }}>Parameter</th>
+                      <th style={{ width: "20%" }}>Type</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        audio_file{" "}
+                        <span
+                          style={{
+                            color: "var(--color-danger)",
+                            marginLeft: "0.25rem",
+                          }}
+                        >
+                          *
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>
+                        File
+                      </td>
+                      <td>Audio or video file to transcribe.</td>
+                    </tr>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        callback_url{" "}
+                        <span
+                          style={{
+                            color: "var(--color-danger)",
+                            marginLeft: "0.25rem",
+                          }}
+                        >
+                          *
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>
+                        String
+                      </td>
+                      <td>Webhook URL where results will be sent.</td>
+                    </tr>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        enhance_audio
+                      </td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>
+                        Boolean
+                      </td>
+                      <td>
+                        Apply audio enhancement. Default: <code>true</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        remove_silence
+                      </td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>
+                        Boolean
+                      </td>
+                      <td>
+                        Remove silent segments. Default: <code>false</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-primary)",
+                        }}
+                      >
+                        include_intelligence
+                      </td>
+                      <td style={{ color: "var(--color-text-secondary)" }}>
+                        Boolean
+                      </td>
+                      <td>
+                        Perform analysis. Default: <code>true</code>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h5
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "1rem",
+                }}
+              >
+                Response
+              </h5>
+              <div
+                className="code-block"
+                style={{
+                  backgroundColor: "var(--color-bg-tertiary)",
+                  padding: "1rem",
+                  borderRadius: "8px",
+                }}
+              >
+                <pre
+                  style={{
+                    margin: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  {`{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "accepted"
+}`}
+                </pre>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
     </div>
