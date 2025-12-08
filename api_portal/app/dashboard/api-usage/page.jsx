@@ -14,6 +14,48 @@ export default function ApiUsagePage() {
     },
   });
 
+  const [copied, setCopied] = useState(false);
+
+  const pythonScript = `import requests
+
+def transcribe_audio(file_path, api_key):
+    url = "https://bytepulseai.com/transcribe"
+    
+    headers = {
+        "X-API-Key": api_key
+    }
+    
+    # Open the file in binary mode
+    with open(file_path, "rb") as audio_file:
+        files = {
+            "audio_file": audio_file
+        }
+        
+        data = {
+            "callback_url": "https://your-server.com/webhook",
+            "enhance_audio": "true",
+            "include_intelligence": "true"
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, files=files, data=data)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error: {e}")
+            return None
+
+# Usage
+job = transcribe_audio("meeting_recording.mp3", "your_api_key_here")
+if job:
+    print(f"Job started! ID: {job.get('job_id')}")`;
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(pythonScript);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   if (status === "loading") {
     return (
       <div className="dashboard-layout">
@@ -55,7 +97,66 @@ export default function ApiUsagePage() {
             </p>
           </div>
 
-       
+          <div className="section-card">
+            <div className="section-header">
+              <h3 className="section-title">Python API Example</h3>
+              <div className="quickstart-lang">Python</div>
+            </div>
+
+            <div className="quickstart-code" style={{ padding: 0 }}>
+              <div style={{ position: "relative" }}>
+                <button
+                  className="quickstart-copy"
+                  onClick={copyToClipboard}
+                  style={{
+                    position: "absolute",
+                    top: "1rem",
+                    right: "1rem",
+                    zIndex: 10,
+                  }}
+                  title="Copy code"
+                >
+                  {copied ? (
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--color-success)"
+                      strokeWidth={2}
+                      style={{ width: 14, height: 14 }}
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      style={{ width: 14, height: 14 }}
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </button>
+                <div
+                  className="code-block"
+                  style={{
+                    borderRadius: "0 0 12px 12px",
+                    margin: 0,
+                    maxHeight: "calc(100vh - 300px)",
+                    overflowY: "auto",
+                    backgroundColor: "var(--color-bg-tertiary)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  <pre style={{ margin: 0, fontFamily: "var(--font-mono)" }}>
+                    {pythonScript}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* API Reference Section */}
           <div className="section-card" style={{ marginTop: "2rem" }}>
@@ -304,6 +405,60 @@ export default function ApiUsagePage() {
                   {`{
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "accepted"
+}`}
+                </pre>
+              </div>
+
+              <h5
+                style={{
+                  fontSize: "0.85rem",
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "1rem",
+                  marginTop: "2rem",
+                }}
+              >
+                Webhook Response
+              </h5>
+              <p
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontSize: "0.9rem",
+                  marginBottom: "1rem",
+                  lineHeight: "1.6",
+                }}
+              >
+                When the job is completed or failed, a POST request is sent to
+                your <code>callback_url</code>.
+              </p>
+              <div
+                className="code-block"
+                style={{
+                  backgroundColor: "var(--color-bg-tertiary)",
+                  padding: "1rem",
+                  borderRadius: "8px",
+                }}
+              >
+                <pre
+                  style={{
+                    margin: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  {`{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "timestamp": 1702108800.123,
+  "processing_time": 4.5,
+  "result": {
+    "text": "This is the transcribed text from the audio file.",
+    "confidence": 0.98,
+    "duration": 15.2,
+    "words": [...]
+  },
+  "error": null
 }`}
                 </pre>
               </div>
