@@ -97,67 +97,6 @@ if job:
             </p>
           </div>
 
-          <div className="section-card">
-            <div className="section-header">
-              <h3 className="section-title">Python API Example</h3>
-              <div className="quickstart-lang">Python</div>
-            </div>
-
-            <div className="quickstart-code" style={{ padding: 0 }}>
-              <div style={{ position: "relative" }}>
-                <button
-                  className="quickstart-copy"
-                  onClick={copyToClipboard}
-                  style={{
-                    position: "absolute",
-                    top: "1rem",
-                    right: "1rem",
-                    zIndex: 10,
-                  }}
-                  title="Copy code"
-                >
-                  {copied ? (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="var(--color-success)"
-                      strokeWidth={2}
-                      style={{ width: 14, height: 14 }}
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      style={{ width: 14, height: 14 }}
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                  )}
-                </button>
-                <div
-                  className="code-block"
-                  style={{
-                    borderRadius: "0 0 12px 12px",
-                    margin: 0,
-                    maxHeight: "calc(100vh - 300px)",
-                    overflowY: "auto",
-                    backgroundColor: "var(--color-bg-tertiary)",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  <pre style={{ margin: 0, fontFamily: "var(--font-mono)" }}>
-                    {pythonScript}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* API Reference Section */}
           <div className="section-card" style={{ marginTop: "2rem" }}>
             <div className="section-header">
@@ -459,6 +398,66 @@ if job:
   "diarized_transcription": "Speaker 1: Hello\\nSpeaker 2: Hi there"
 }`}
                 </pre>
+              </div>
+            </div>
+          </div>
+           <div className="section-card">
+            <div className="section-header">
+              <h3 className="section-title">Python API Example</h3>
+              <div className="quickstart-lang">Python</div>
+            </div>
+
+            <div className="quickstart-code" style={{ padding: 0 }}>
+              <div style={{ position: "relative" }}>
+                <button
+                  className="quickstart-copy"
+                  onClick={copyToClipboard}
+                  style={{
+                    position: "absolute",
+                    top: "1rem",
+                    right: "1rem",
+                    zIndex: 10,
+                  }}
+                  title="Copy code"
+                >
+                  {copied ? (
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--color-success)"
+                      strokeWidth={2}
+                      style={{ width: 14, height: 14 }}
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      style={{ width: 14, height: 14 }}
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </button>
+                <div
+                  className="code-block"
+                  style={{
+                    borderRadius: "0 0 12px 12px",
+                    margin: 0,
+                    maxHeight: "calc(100vh - 300px)",
+                    overflowY: "auto",
+                    backgroundColor: "var(--color-bg-tertiary)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  <pre style={{ margin: 0, fontFamily: "var(--font-mono)" }}>
+                    {pythonScript}
+                  </pre>
+                </div>
               </div>
             </div>
           </div>
