@@ -121,9 +121,9 @@ export default function ApiKeysPage() {
           {/* Page Header */}
           <div className="content-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <h1 className="content-title">API Keys</h1>
+              <h1 className="content-title">Auth Keys</h1>
               <p className="content-subtitle">
-                Create and manage API keys for your applications.
+                Create and manage auth keys for your applications.
               </p>
             </div>
             <button
@@ -181,24 +181,6 @@ export default function ApiKeysPage() {
                 }}
               />
             </div>
-            <select
-              value={selectedEnvironment}
-              onChange={(e) => setSelectedEnvironment(e.target.value)}
-              style={{
-                padding: "0.625rem 1rem",
-                background: "var(--color-bg-tertiary)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "8px",
-                color: "var(--color-text-primary)",
-                fontSize: "0.875rem",
-                cursor: "pointer",
-              }}
-            >
-              <option value="all">All Environments</option>
-              <option value="production">Production</option>
-              <option value="development">Development</option>
-              <option value="staging">Staging</option>
-            </select>
           </div>
 
           {/* API Keys List */}

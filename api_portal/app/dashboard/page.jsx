@@ -146,23 +146,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="stat-card">
-              <div className="stat-content">
-                <span className="stat-label">API Requests</span>
-                <span className="stat-value">0</span>
-                <span className="stat-trend positive">--</span>
-              </div>
-              <div className="stat-icon purple">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-              </div>
-            </div>
+          
 
             <div className="stat-card">
               <div className="stat-content">
@@ -289,57 +273,6 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* Quick Start */}
-            <div className="quickstart-panel">
-              <div className="quickstart-header">
-                <h3 className="quickstart-title">Quick Start</h3>
-                <button className="quickstart-lang">
-                  javascript
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    style={{ width: 14, height: 14 }}
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-              </div>
-              <div className="quickstart-code">
-                <div className="quickstart-code-header">
-                  <span className="quickstart-code-label">Initialize SDK</span>
-                  <button className="quickstart-copy" title="Copy code">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                  </button>
-                </div>
-                <pre className="code-block">
-                  <code>
-                    {`import S2A from '@s2a/sdk';
-
-const client = new S2A({
-  apiKey: 'your-api-key-here',
-});
-
-// Make your first request
-const response = await client.transcribe({
-  audio: audioFile,
-  language: 'en',
-});
-console.log(response);`}
-                  </code>
-                </pre>
-              </div>
             </div>
           </div>
 

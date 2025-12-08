@@ -29,8 +29,8 @@ export default function Sidebar() {
     },
     {
       id: "api-keys",
-      label: "API Keys",
-      href: "/dashboard/api-keys",
+      label: "API Usage",
+      href: "/dashboard/api-usage",
       icon: (
         <svg
           viewBox="0 0 24 24"
@@ -45,7 +45,7 @@ export default function Sidebar() {
     {
       id: "auth-keys",
       label: "Auth Keys",
-      href: "/dashboard/auth-keys",
+      href: "/dashboard/api-keys",
       icon: (
         <svg
           viewBox="0 0 24 24"
