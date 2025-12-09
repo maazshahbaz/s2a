@@ -55,6 +55,9 @@ async def transcribe_async(
     try:
         # Get audio duration
         audio_duration = get_audio_duration(audio_path)
+        
+        # Get audio file size in bytes
+        audio_size = os.path.getsize(audio_path)
 
          # Check minimum duration (both sync/async same rule)
         if audio_duration < asr_svc.min_audio_duration:
@@ -76,7 +79,8 @@ async def transcribe_async(
             remove_silence=remove_silence,
             priority=priority,
             callback_url=callback_url,
-            audio_duration=audio_duration
+            audio_duration=audio_duration,
+            audio_size=audio_size
         )
         
         # Add to background processing
@@ -155,7 +159,7 @@ async def get_transcription_status(
             text=result.text,
             duration=job.audioDuration or 0,
             rtf=result.rtf or 0,
-            processing_time=result.processingTime or 0,
+            processing_time=job.processingTime or 0,
             chunks=result.chunks or 1,
             confidence=result.confidence,
             audio_quality=result.audioQuality,

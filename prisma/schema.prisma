@@ -77,21 +77,21 @@ model AuthKey {
 }
 
 model TranscriptionJob {
-  id            String    @id @default(dbgenerated("gen_random_uuid()"))
-  jobId         String    @unique @map("job_id") // UUID for external reference
-  audioPath     String    @map("audio_path") // Path to stored audio file
-  status        String    @default("pending") // pending, processing, completed, failed, rejected
-  isAsync       Boolean   @map("is_async") // sync or async processing
-  enhanceAudio  Boolean   @default(true) @map("enhance_audio")
-  removeSilence Boolean   @default(false) @map("remove_silence")
-  priority      Int       @default(0) // for async jobs
-  callbackUrl   String?   @map("callback_url") // for async jobs
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  startedAt     DateTime? @map("started_at")
-  completedAt   DateTime? @map("completed_at")
-  audioDuration Float?    @map("audio_duration") // in seconds
-  errorMessage  String?   @map("error_message")
+  id             String    @id @default(dbgenerated("gen_random_uuid()"))
+  jobId          String    @unique @map("job_id") // UUID for external reference
+  audioPath      String    @map("audio_path") // Path to stored audio file
+  status         String    @default("pending") // pending, processing, completed, failed, rejected
+  isAsync        Boolean   @map("is_async") // sync or async processing
+  enhanceAudio   Boolean   @default(true) @map("enhance_audio")
+  removeSilence  Boolean   @default(false) @map("remove_silence")
+  priority       Int       @default(0) // for async jobs
+  callbackUrl    String?   @map("callback_url") // for async jobs
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  audioDuration  Float?    @map("audio_duration") // in seconds
+  audioSize      BigInt?   @map("audio_size") // in bytes
+  processingTime Float?    @map("processing_time") // in seconds
+  errorMessage   String?   @map("error_message")
 
   // Relations
   transcriptionResult TranscriptionResult?
@@ -100,17 +100,16 @@ model TranscriptionJob {
 }
 
 model TranscriptionResult {
-  id             String   @id @default(dbgenerated("gen_random_uuid()"))
-  jobId          String   @unique @map("job_id") // foreign key
-  text           String   // Full transcription without speaker labels
-  confidence     Float?
-  rtf            Float? // real-time factor
-  processingTime Float?   @map("processing_time") // in seconds
-  chunks         Int?     @default(1)
-  diarization    Json?    // Diarization data: speakerTranscript, numSpeakers, diarizationStatus, etc.
-  intelligence   Json?
-  audioQuality   Json?    @map("audio_quality") // Audio quality metrics (SNR, noise level, etc.)
-  createdAt      DateTime @default(now()) @map("created_at")
+  id           String   @id @default(dbgenerated("gen_random_uuid()"))
+  jobId        String   @unique @map("job_id") // foreign key
+  text         String   // Full transcription without speaker labels
+  confidence   Float?
+  rtf          Float? // real-time factor
+  chunks       Int?     @default(1)
+  diarization  Json?    // Diarization data: speakerTranscript, numSpeakers, diarizationStatus, etc.
+  intelligence Json?
+  audioQuality Json?    @map("audio_quality") // Audio quality metrics (SNR, noise level, etc.)
+  createdAt    DateTime @default(now()) @map("created_at")
 
   // Relations
   transcriptionJob TranscriptionJob @relation(fields: [jobId], references: [jobId])
