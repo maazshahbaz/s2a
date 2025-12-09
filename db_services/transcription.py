@@ -41,7 +41,8 @@ class TranscriptionJobService:
         remove_silence: bool = False,
         priority: int = 0,
         callback_url: Optional[str] = None,
-        audio_duration: Optional[float] = None
+        audio_duration: Optional[float] = None,
+        audio_size: Optional[int] = None
     ) -> TranscriptionJob:
         """Create a new transcription job"""
         job = await self.db.transcriptionjob.create(
@@ -54,6 +55,7 @@ class TranscriptionJobService:
                 'priority': priority,
                 'callbackUrl': callback_url,
                 'audioDuration': audio_duration,
+                'audioSize': audio_size,
                 'status': 'pending'
             }
         )
@@ -72,18 +74,15 @@ class TranscriptionJobService:
         job_id: str,
         status: str,
         error_message: Optional[str] = None,
-        started_at: Optional[datetime] = None,
-        completed_at: Optional[datetime] = None
+        processing_time: Optional[float] = None
     ) -> Optional[TranscriptionJob]:
         """Update job status"""
         update_data = {'status': status}
         
         if error_message:
             update_data['errorMessage'] = error_message
-        if started_at:
-            update_data['startedAt'] = started_at
-        if completed_at:
-            update_data['completedAt'] = completed_at
+        if processing_time is not None:
+            update_data['processingTime'] = processing_time
             
         job = await self.db.transcriptionjob.update(
             where={'jobId': job_id},
@@ -116,8 +115,6 @@ class TranscriptionJobService:
             data['confidence'] = confidence
         if rtf is not None:
             data['rtf'] = rtf
-        if processing_time is not None:
-            data['processingTime'] = processing_time
         if chunks is not None:
             data['chunks'] = chunks
         if diarization is not None:
@@ -147,8 +144,8 @@ class TranscriptionJobService:
             
         result = await self.db.transcriptionresult.create(data=data)
         
-        # Update job status to completed
-        await self.update_job_status(job_id, 'completed', completed_at=datetime.utcnow())
+        # Update job status to completed with processing_time
+        await self.update_job_status(job_id, 'completed', processing_time=processing_time)
         
         logger.info(f"Saved transcription result for job {job_id}")
         return result
@@ -176,7 +173,7 @@ class TranscriptionJobService:
         old_jobs = await self.db.transcriptionjob.find_many(
             where={
                 'status': {'in': ['completed', 'failed']},
-                'completedAt': {'lt': cutoff_date}
+                'updatedAt': {'lt': cutoff_date}
             }
         )
         
