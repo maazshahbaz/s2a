@@ -129,17 +129,22 @@ services:
   nextjs-portal:
     build:
       context: ./api_portal
+      dockerfile: Dockerfile
     container_name: nextjs_portal
     ports:
       - "3000:3000"
+    env_file:
+      - ./api_portal/.env
     networks:
       - s2a-network
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://s2a-api:8001 # internal Docker network API URL
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - s2a-api
+      s2a-api:
+        condition: service_healthy
 
 networks:
   s2a-network:
