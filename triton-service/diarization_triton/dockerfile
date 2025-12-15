@@ -1,0 +1,26 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+RUN pip install nemo_toolkit['all']
+
+# Expose ports
+EXPOSE 5000 5001 5002
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=5000", \
+     "--grpc-port=5001", \
+     "--metrics-port=5002", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]

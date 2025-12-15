@@ -1,0 +1,34 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+COPY ./requirements.txt requirements.txt
+
+RUN pip install -r requirements.txt
+
+# Reinstall cuda-python 12.x in case nemo_toolkit overwrote it
+# RUN pip install "cuda-python>=12.3,<13.0" --force-reinstall
+
+# Create necessary directories
+# RUN mkdir -p /models /.cache
+
+# Expose ports
+EXPOSE 4000 4001 4002
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=4000", \
+     "--grpc-port=4001", \
+     "--metrics-port=4002", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]
