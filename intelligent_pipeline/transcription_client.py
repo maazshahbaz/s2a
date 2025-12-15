@@ -5,7 +5,7 @@ import numpy as np
 import json
 
 class AsyncTranscriptionService:
-    def __init__(self, url: str = "localhost:2001"):
+    def __init__(self, url: str = "localhost:4001"):
         self.model_name = "asr_model"
         self.triton_client = None
         self.url = url
@@ -49,7 +49,7 @@ class AsyncTranscriptionService:
         
         
         transcription = response.as_numpy("transcription")[0][0]
-        
+        # print("transcription chunck:", transcription)
         if isinstance(transcription, bytes):
             transcription = transcription.decode('utf-8')
         

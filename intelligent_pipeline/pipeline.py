@@ -75,6 +75,7 @@ class AsyncCompletePipelineWithGlobalDiarization:
             for basename in chunk_basenames
         ]
         
+        print("transcription_tasks:", transcription_tasks)
         transcriptions = await asyncio.gather(*transcription_tasks)
         
         return transcriptions, chunk_paths, chunk_timings
@@ -98,6 +99,7 @@ class AsyncCompletePipelineWithGlobalDiarization:
             diar_task,
             transcription_task
         )
+        print("transcriptions:",  transcriptions)
         
         # Step 3: Merge transcriptions with global diarization
         raw_transcription, labeled_transcription, aligned_words = \
@@ -106,7 +108,7 @@ class AsyncCompletePipelineWithGlobalDiarization:
                 self.global_diar_manager,
                 chunk_timings
             )
-        
+        print("raw_transcription:", raw_transcription)
         # Step 4: Analysis (using RAW transcription, NOT labeled)
         # CRITICAL: Pass raw_transcription to analysis, NOT labeled_transcription
         analysis_task = self.analysis.analyze_call_async(raw_transcription, request_id)

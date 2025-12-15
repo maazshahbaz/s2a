@@ -278,7 +278,7 @@ class AsyncAnalysis:
     async def initialize(self):
         """Initialize the async Triton client."""
         if self.client is None:
-            self.client = grpcclient_aio.InferenceServerClient(url="localhost:2001")
+            self.client = grpcclient_aio.InferenceServerClient(url="localhost:6001")
     
     def __preprocess_output(self, output_text):
         """
@@ -489,7 +489,10 @@ class AsyncAnalysis:
         
         if request_id is None:
             request_id = str(uuid.uuid4())
-        
+        print("=====================================================")
+        print("prompt:", prompt)
+        print("=====================================================")
+
         input_data = np.array([[prompt]], dtype=object)
         inputs = [grpcclient_aio.InferInput("prompt", [1, 1], "BYTES")]
         inputs[0].set_data_from_numpy(input_data)
@@ -507,7 +510,9 @@ class AsyncAnalysis:
         if isinstance(output_text, bytes):
             output_text = output_text.decode('utf-8')
         
+        print("output_text:", output_text)
         json_output = self.__clean_output(output_text, request_id)
+        # print("json_output:", json_output)
         return json_output
     
     def __format_prompt(self, system_prompt: str, user_prompt: str) -> str:

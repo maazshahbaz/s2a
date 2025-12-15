@@ -7,7 +7,7 @@ import json
 class AsyncDiarizationClient:
     """Async gRPC Client for Triton Diarization Server"""
     
-    def __init__(self, url: str = "localhost:2001"):
+    def __init__(self, url: str = "localhost:5001"):
         self.url = url
 
         self.model_name = "diarization_model"

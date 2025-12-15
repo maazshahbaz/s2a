@@ -62,7 +62,7 @@ class WordLevelDiarizationMerger:
         
         for word_info in aligned_words:
             speaker = word_info['speaker']
-            text = word_info.get('text', word_info.get('word', ''))
+            text = word_info.get('text', word_info.get('segment', ''))
             
             if speaker != current_speaker:
                 # Speaker change - save previous segment
@@ -105,9 +105,9 @@ class WordLevelDiarizationMerger:
             # Extract text and word timestamps
             text = trans_data.get('text', '')
             word_timestamps = trans_data.get('word_timestamps', [])
-            
+
             all_raw_text.append(text)
-            
+
             # Align words with GLOBAL diarization
             if word_timestamps:
                 aligned_words = WordLevelDiarizationMerger.align_words_with_global_diarization(
@@ -116,12 +116,11 @@ class WordLevelDiarizationMerger:
                     chunk_start
                 )
                 all_aligned_words.extend(aligned_words)
-        
+
         # Create formatted transcriptions
         raw_transcription = ' '.join(all_raw_text)
         labeled_transcription = WordLevelDiarizationMerger.format_transcription_with_speakers(
             all_aligned_words
         )
-        
-        return raw_transcription, labeled_transcription, all_aligned_words
 
+        return raw_transcription, labeled_transcription, all_aligned_words
