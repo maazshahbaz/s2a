@@ -95,8 +95,7 @@ temp/
 # node_modules
 node_modules
 
-# Model Cache
-/triton-service/model-cache
-/triton-service/model_repository/mistral-nemo/engine
-/triton-service/model_repository/mistral-nemo/mistral-nemo-instruct-2407
-/triton-service/model_repository/diarization_model/engine
+# Models
+/triton-service/mistral_triton/models/mistral-nemo/engine
+/triton-service/mistral_triton/models/mistral-nemo/mistral-nemo-instruct-2407
+/triton-service/diarization_triton/models/diarization_model/engine
