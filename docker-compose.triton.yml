@@ -1,21 +1,85 @@
 version: '3.8'
 
 services:
-  triton-server:
+  asr-triton-server:
     build:
-      context: ./triton-service/
+      context: ./asr_triton  # Replace with your first Dockerfile's folder path
       dockerfile: Dockerfile
-    image: triton:latest
-    container_name: triton
-  
-
-    # GPU configuration
+    container_name: asr-triton-server-dev
+    ports:
+      - "3500:3500"  # HTTP
+      - "3501:3501"  # gRPC
+      - "3502:3502"  # Metrics
+    volumes:
+      - ./asr_triton/models:/models  # Mount your models directory
+      - /home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder:/data/uploads:ro
+      - /tmp/s2a:/data/uploads:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0  # Adjust GPU allocation as needed
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: 1  # Adjust based on your GPU availability
+              capabilities: [gpu]
+    # Shared memory and limits
+    shm_size: '32gb'
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: unless-stopped
+    networks:
+      - triton-network
+
+  diarization-triton-server:
+    build:
+      context: ./diarization_triton  # Replace with your second Dockerfile's folder path
+      dockerfile: Dockerfile
+    container_name: diarization-triton-server-dev
+    ports:
+      - "3600:3600"  # HTTP
+      - "3601:3601"  # gRPC
+      - "3602:3602"  # Metrics
+    volumes:
+      - ./diarization_triton/models:/models  # Mount your models directory
+    environment:
+      - CUDA_VISIBLE_DEVICES=0  # Adjust GPU allocation as needed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1  # Adjust based on your GPU availability
+              capabilities: [gpu]
+    # Shared memory and limits
+    shm_size: '32gb'
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: unless-stopped
+    networks:
+      - triton-network
+
+  mistral-triton-server:
+    build:
+      context: ./mistral_trtion  # Replace with your third Dockerfile's folder path
+      dockerfile: Dockerfile
+    container_name: mistral-triton-server-dev
+    ports:
+      - "3700:3700"  # HTTP
+      - "3701:3701"  # gRPC
+      - "3702:3702"  # Metrics
+    volumes:
+      - ./mistral_trtion/models:/models  # Mount your models directory
+    environment:
+      - CUDA_VISIBLE_DEVICES=0  # Adjust GPU allocation as needed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1  # Adjust based on your GPU availability
               capabilities: [gpu]
 
     # Shared memory and limits
@@ -23,35 +87,10 @@ services:
     ulimits:
       memlock: -1
       stack: 67108864
-
-    # Port mappings
-    ports:
-      - "2000:2000"  # HTTP
-      - "2001:2001"  # gRPC
-      - "2002:2002"  # Metrics
-
-    # Volume mappings
-    volumes:
-      - ./triton-service/model_repository:/models
-      - model-cache:/.cache
-      - /home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder:/data/uploads:ro
-      - /tmp/s2a:/tmp/s2a:ro
-
-    # Restart policy
     restart: unless-stopped
-
-    # Health check
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2000/v2/health/ready"]
-      interval: 300s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
-
-volumes:
-  model-cache:
-    driver: local
+    networks:
+      - triton-network
 
 networks:
-  default:
-    name: triton-server
+  triton-network:
+    driver: bridge
