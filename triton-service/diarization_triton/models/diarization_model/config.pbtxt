@@ -1,0 +1,49 @@
+name: "diarization_model"
+backend: "python"
+max_batch_size: 1
+
+# Input: Audio waveform (variable length)
+input [
+  {
+    name: "audio_input"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "sample_rate"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+# Output: Diarization results as JSON string
+output [
+  {
+    name: "diarization_output"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 2
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+# No dynamic batching for large audio files
+# Each request is processed independently
+dynamic_batching {
+  max_queue_delay_microseconds: 0
+  preferred_batch_size: [ 1 ]
+}
+
+# Path to TensorRT engines
+parameters: {
+  key: "DIARIZATION_MODEL_DIR"
+  value: {
+    string_value: "/models/diarization_model"
+  }
+}
