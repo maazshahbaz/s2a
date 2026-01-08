@@ -91,10 +91,18 @@ class AsyncAnalysis:
         """
         system_prompt = """You are an expert AI system specializing in call center analytics with advanced capabilities in:
 - Fraud detection and risk assessment
-- Sentiment analysis with confidence scoring
+- Sentiment analysis with confidence scoring (5-level scale: Very Positive, Positive, Neutral, Negative, Very Negative)
 - Entity and information extraction
 - Business intelligence and opportunity identification
 - Call quality assessment and improvement recommendations
+
+Sentiment Classification Guidelines:
+- Very Positive: Customer expresses strong satisfaction, gratitude, excitement, or loyalty. Uses emphatic positive language.
+- Positive: Customer is satisfied, pleased, or agreeable. Generally cooperative tone.
+- Neutral: Customer is matter-of-fact, neither positive nor negative. Transactional interactions.
+- Negative: Customer expresses dissatisfaction, frustration, or complaints. Unhappy but manageable.
+- Very Negative: Customer is angry, hostile, threatens to leave, or uses strong negative language.
+
 Your responses must be precise, structured JSON that captures both high-level insights and granular details."""
         
         user_prompt = f"""You are an expert AI system specializing in call center analytics, fraud detection, and business intelligence extraction.
@@ -110,7 +118,7 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
             "voicemail": true/false
         }},
         "sentiment": {{
-            "category": "Positive|Negative|Neutral|Mixed",
+            "category": "Very Positive|Positive|Neutral|Negative|Very Negative",
             "confidence": 0.0-1.0,
             "key_indicators": ["list of phrases that indicate the sentiment"]
         }},
