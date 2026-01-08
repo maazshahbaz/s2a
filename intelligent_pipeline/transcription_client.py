@@ -3,12 +3,16 @@ from typing import Dict
 import uuid
 import numpy as np
 import json
+from config_loader import config
 
 class AsyncTranscriptionService:
-    def __init__(self, url: str = "localhost:2001"):
-        self.model_name = "asr_model"
+    def __init__(self, url: str = None):
+        # Load configuration
+        service_config = config.get_service_config('transcription')
+        
+        self.url = url or service_config.get('url', 'localhost:3501')
+        self.model_name = service_config.get('model_name', 'asr_opt')
         self.triton_client = None
-        self.url = url
         
     async def initialize(self):
         """Initialize the async Triton client."""
@@ -23,9 +27,6 @@ class AsyncTranscriptionService:
             {'text': '...', 'word_timestamps': [{'text': '...', 'start': 0.0, 'end': 0.0}, ...]}
         """
         await self.initialize()
-        
-        # if request_id is None:
-        request_id = f"{request_id}_{str(uuid.uuid4())}"
         
         # Prepare input
         audio_path_np = np.array([[audio_file_path]], dtype=object)
@@ -49,7 +50,6 @@ class AsyncTranscriptionService:
         
         
         transcription = response.as_numpy("transcription")[0][0]
-        
         if isinstance(transcription, bytes):
             transcription = transcription.decode('utf-8')
         
@@ -64,6 +64,7 @@ class AsyncTranscriptionService:
                 # If word_timestamps exists, ensure it's a list
                 elif 'word_timestamps' in result and not isinstance(result['word_timestamps'], list):
                     result['word_timestamps'] = []
+
                 return result
             else:
                 # If result is not a dict, treat as plain text
@@ -77,4 +78,3 @@ class AsyncTranscriptionService:
                 'text': transcription,
                 'word_timestamps': []
             }
-

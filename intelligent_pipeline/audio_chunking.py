@@ -4,14 +4,21 @@ from pydub import AudioSegment
 import asyncio
 
 class AudioChunking:
-    def __init__(self):
-        self.target_chunk_ms = 5 * 60 * 1000  # 5 minutes
-        self.allowed_drift_ms = 20 * 1000     # allow ±20 sec drift around 5 min
-        self.silence_padding_ms = 200
-        self.vad_aggressiveness = 2
-        self.frame_ms = 30
-        self.aggressiveness = 2
-        self.temp_dir = "/tmp/s2a"
+    def __init__(self, 
+                 target_chunk_minutes: int = 5,
+                 allowed_drift_seconds: int = 20,
+                 silence_padding_ms: int = 200,
+                 vad_aggressiveness: int = 2,
+                 frame_duration_ms: int = 30,
+                 temp_directory: str = "/home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder"):
+        
+        self.target_chunk_ms = target_chunk_minutes * 60 * 1000
+        self.allowed_drift_ms = allowed_drift_seconds * 1000
+        self.silence_padding_ms = silence_padding_ms
+        self.vad_aggressiveness = vad_aggressiveness
+        self.frame_ms = frame_duration_ms
+        self.aggressiveness = vad_aggressiveness
+        self.temp_dir = temp_directory
         os.makedirs(self.temp_dir, exist_ok=True)
         
     def __frame_generator(self, audio):
@@ -117,4 +124,3 @@ class AudioChunking:
         chunk_timings_sec = [(start/1000, end/1000) for start, end in chunk_timings]
         
         return file_list, chunk_timings_sec
-
