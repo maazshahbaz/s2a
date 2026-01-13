@@ -1,0 +1,28 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+COPY ./requirements.txt requirements.txt
+
+RUN pip install -r requirements.txt
+
+# Expose ports
+EXPOSE 3500 3501 3502
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=3500", \
+     "--grpc-port=3501", \
+     "--metrics-port=3502", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]
