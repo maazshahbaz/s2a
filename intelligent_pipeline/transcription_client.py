@@ -3,7 +3,7 @@ from typing import Dict
 import uuid
 import numpy as np
 import json
-from config_loader import config
+from .config_loader import config
 
 class AsyncTranscriptionService:
     def __init__(self, url: str = None):

@@ -1,6 +1,6 @@
 from typing import List, Tuple, Dict
 from speaker_corrector import LLMSpeakerCorrector
-from config_loader import config
+from .config_loader import config
 
 
 class TranscriptMerger:

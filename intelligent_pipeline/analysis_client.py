@@ -5,7 +5,7 @@ import uuid
 import re
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
-from config_loader import config
+from .config_loader import config
 
 
 # Pydantic Models for validation and cleaning

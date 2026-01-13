@@ -12,7 +12,7 @@ import uuid
 import re
 from typing import List, Dict, Tuple, Optional
 import time
-from config_loader import config
+from .config_loader import config
 
 
 class LLMSpeakerCorrector:

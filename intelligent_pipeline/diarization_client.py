@@ -7,7 +7,7 @@ from typing import Dict
 import json
 import librosa
 from scipy import signal
-from config_loader import config
+from .config_loader import config
 
 class AsyncDiarizationClient:
     """Async gRPC Client for Triton Diarization Server"""
