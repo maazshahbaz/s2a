@@ -1,9 +1,9 @@
-from .intelligent_pipeline.audio_chunking import AudioChunking
-from .intelligent_pipeline.transcription_client import AsyncTranscriptionService
-from .intelligent_pipeline.diarization_client import AsyncDiarizationClient
-from .intelligent_pipeline.analysis_client import AsyncAnalysis
-from .intelligent_pipeline.diarization import GlobalDiarizationManager
-from .intelligent_pipeline.transcript_merger import WordLevelDiarizationMerger
+from intelligent_pipeline.audio_chunking import AudioChunking
+from intelligent_pipeline.transcription_client import AsyncTranscriptionService
+from intelligent_pipeline.diarization_client import AsyncDiarizationClient
+from intelligent_pipeline.analysis_client import AsyncAnalysis
+from intelligent_pipeline.diarization import GlobalDiarizationManager
+from intelligent_pipeline.transcript_merger import WordLevelDiarizationMerger
 
 import asyncio
 import os
