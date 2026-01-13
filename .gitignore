@@ -72,7 +72,6 @@ dmypy.json
 # Data files
 data/
 datasets/
-*.json
 *.csv
 !configs/*.json
 !examples/*.json
@@ -100,3 +99,6 @@ node_modules
 /triton-service/mistral_triton/models/mistral-nemo/engine
 /triton-service/mistral_triton/models/mistral-nemo/mistral-nemo-instruct-2407
 /triton-service/diarization_triton/models/diarization_model/engine
+
+# nextjs
+.next

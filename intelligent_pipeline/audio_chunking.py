@@ -10,7 +10,7 @@ class AudioChunking:
                  silence_padding_ms: int = 200,
                  vad_aggressiveness: int = 2,
                  frame_duration_ms: int = 30,
-                 temp_directory: str = "/home/sj/Desktop/data/back2/bytepulse-ai/s2a-omar-development/triton_analysis/audio_temp_folder"):
+                 temp_directory: str = "/tmp/s2a:/data/uploads"):
         
         self.target_chunk_ms = target_chunk_minutes * 60 * 1000
         self.allowed_drift_ms = allowed_drift_seconds * 1000

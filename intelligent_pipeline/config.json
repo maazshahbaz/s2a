@@ -1,0 +1,15 @@
+{"services": {
+    "transcription": {"url": "localhost:3501",
+    "model_name": "asr_model"
+    },
+    "diarization": {"url": "localhost:3601",
+    "model_name": "diarization_model"
+    },
+    "analysis": {"url": "localhost:3701",
+    "model_name": "mistral-nemo"
+    },
+    "speaker_correction": {"url": "localhost:3701",
+    "model_name": "mistral-nemo"
+    }
+}
+}

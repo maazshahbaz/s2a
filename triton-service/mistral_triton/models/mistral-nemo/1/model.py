@@ -73,6 +73,8 @@ class TritonPythonModel:
             # beam_width=1
         )
 
+        self.max_safe_input = 8192 - self.max_tokens - 100
+
     def _extract_prompt(self, request):
         """Extract prompt from a single request"""
         text_input = pb_utils.get_input_tensor_by_name(request, "prompt")
@@ -98,12 +100,13 @@ class TritonPythonModel:
                     prompt,
                     padding=False,
                     truncation=True,
-                    max_length=8192,
+                    max_length=self.max_safe_input,
                     return_tensors="pt",
                     return_attention_mask=True
                 )
                 
                 input_ids = encoded['input_ids']
+                print(f"input_ids: {input_ids.shape[1]}", flush = True)
                 input_length = encoded['attention_mask'].sum().item()
                 
                 batch_input_ids = [input_ids[0]]
