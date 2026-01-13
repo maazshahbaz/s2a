@@ -40,18 +40,6 @@ class WebhookSender:
             if not parsed.netloc:
                 return False
                 
-            # Block localhost/private IPs for security (optional - remove if needed)
-            # This prevents SSRF attacks
-            hostname = parsed.hostname
-            if hostname and (
-                hostname in ['localhost', '127.0.0.1', '::1'] or
-                hostname.startswith('10.') or
-                hostname.startswith('192.168.') or
-                hostname.startswith('172.')
-            ):
-                logger.warning(f"Blocked private/localhost callback URL: {url}")
-                return False
-                
             return True
             
         except Exception as e:
