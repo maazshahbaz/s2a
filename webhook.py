@@ -27,24 +27,35 @@ class WebhookSender:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
     
+    
+
     def validate_callback_url(self, url: str) -> bool:
         """Validate callback URL format and security"""
+        if not url:
+            logger.warning("Empty callback URL provided")
+            return False
+            
         try:
-            parsed = urlparse(url)
+            # Strip leading/trailing whitespace
+            clean_url = url.strip()
+            parsed = urlparse(clean_url)
             
             # Must be HTTP or HTTPS
             if parsed.scheme not in ['http', 'https']:
+                logger.warning(f"Invalid callback URL scheme: {clean_url} (scheme: {parsed.scheme})")
                 return False
                 
-            # Must have a valid hostname
+            # Must have a valid hostname (netloc)
             if not parsed.netloc:
+                logger.warning(f"Invalid callback URL host: {clean_url}")
                 return False
                 
             return True
             
         except Exception as e:
-            logger.error(f"Invalid callback URL format: {url}, error: {e}")
+            logger.error(f"Error parsing callback URL: {url}, error: {e}")
             return False
+
     
     async def send_webhook(self, callback_url: str, payload: WebhookPayload) -> bool:
         """Send webhook with retry logic"""

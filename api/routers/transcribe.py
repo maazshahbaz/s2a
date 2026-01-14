@@ -35,8 +35,10 @@ async def transcribe_async(
     job_id = str(uuid.uuid4())
     
     # Validate callback URL
+    logger.debug(f"Received callback_url: '{callback_url}' for job {job_id}")
     if not webhook_sender.validate_callback_url(callback_url):
-        raise HTTPException(status_code=400, detail="Invalid callback_url. Must be a valid HTTP/HTTPS URL.")
+        logger.warning(f"Validation failed for callback_url: '{callback_url}'")
+        raise HTTPException(status_code=400, detail=f"Invalid callback_url: '{callback_url}'. Must be a valid HTTP/HTTPS URL.")
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
