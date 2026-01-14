@@ -4,11 +4,11 @@ import soundfile as sf
 from typing import Tuple, Dict, List
 from .config_loader import config
 
-from audio_chunking import AudioChunking
-from transcription_client import AsyncTranscriptionService
-from diarization_client import AsyncDiarizationClient
-from analysis_client import AsyncAnalysis
-from transcript_merger import TranscriptMerger
+from .audio_chunking import AudioChunking
+from .transcription_client import AsyncTranscriptionService
+from .diarization_client import AsyncDiarizationClient
+from .analysis_client import AsyncAnalysis
+from .transcript_merger import TranscriptMerger
 
 
 class Pipeline:
