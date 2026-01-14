@@ -11,7 +11,7 @@ from config import get_settings, get_redis_settings
 from api.routers import all_routers
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
-from services.triton.triton_service import TritonService
+from intelligent_pipeline.pipeline import Pipeline
 
 prisma = Prisma()
 
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Triton Inference Service...")
 
     try:
-        app.state.triton_service = TritonService()
+        app.state.triton_service = Pipeline()
     except Exception as e:
         logger.error(f"Failed to initialize TritonService: {e}")
         app.state.triton_service = None
@@ -111,13 +111,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # React development
-        "http://localhost:8080",  # Vue development
-        "https://your-domain.com"  # Production domain
+        "https://dev.api.bytepulseai.com", # Next.js production container
+        "https://dev.bytepulseai.com", # Production domain
+        "https://bytepulseai.com", # Production domain
+        "https://api.bytepulseai.com", # Production domain
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Authorization", 
+        "Content-Type",
+        "x-user-id",
+        "x-timestamp",
+        "x-body-hash",
+        "x-signature"
+    ],
 )
 
 for router in all_routers:

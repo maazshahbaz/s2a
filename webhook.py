@@ -16,55 +16,49 @@ class WebhookPayload:
     job_id: str
     status: Optional[str] = None
     error: Optional[str] = None
-    timestamp: float = None
-    processing_time: Optional[float] = None
-    
-    # Intelligence-specific fields
-    intelligence_type: Optional[str] = None  # "quick", "enhanced", "transcription"
-    intelligence_data: Optional[Dict[str, Any]] = None
-    
-    # Additional fields for backward compatibility
     transcription: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     diarized_transcription: Optional[str] = None
 
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = time.time()
 
 class WebhookSender:
     def __init__(self, timeout: float = 30.0, max_retries: int = 3, retry_delay: float = 1.0):
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-    
+    def sanitize_url(self, url: str) -> str:
+        """Sanitize URL by stripping whitespace, quotes, and semicolons"""
+        if not url:
+            return ""
+        return url.strip("'\"; ")
+
     def validate_callback_url(self, url: str) -> bool:
         """Validate callback URL format and security"""
+        if not url:
+            logger.warning("Empty callback URL provided")
+            return False
+            
         try:
-            parsed = urlparse(url)
+            # Clean the URL
+            clean_url = self.sanitize_url(url)
+            parsed = urlparse(clean_url)
             
             # Must be HTTP or HTTPS
             if parsed.scheme not in ['http', 'https']:
+                logger.warning(f"Invalid callback URL scheme: {clean_url} (scheme: {parsed.scheme})")
                 return False
                 
-            # Must have a valid hostname
+            # Must have a valid hostname (netloc)
             if not parsed.netloc:
-                return False
-                
-            # Block localhost/private IPs for security (optional - remove if needed)
-            # This prevents SSRF attacks
-            hostname = parsed.hostname
-            if hostname and (
-                hostname in ['localhost', '127.0.0.1', '::1']
-            ):
-                logger.warning(f"Blocked localhost callback URL: {url}")
+                logger.warning(f"Invalid callback URL host: {clean_url}")
                 return False
                 
             return True
             
         except Exception as e:
-            logger.error(f"Invalid callback URL format: {url}, error: {e}")
+            logger.error(f"Error parsing callback URL: {url}, error: {e}")
             return False
+
     
     async def send_webhook(self, callback_url: str, payload: WebhookPayload) -> bool:
         """Send webhook with retry logic"""
@@ -76,17 +70,10 @@ class WebhookSender:
         # Prepare payload
         webhook_data = {
             "job_id": payload.job_id,
-            "status": payload.status,
-            "timestamp": payload.timestamp,
-            "processing_time": payload.processing_time
         }
 
-        # Add intelligence fields if present
-        if payload.intelligence_type:
-            webhook_data["intelligence_type"] = payload.intelligence_type
-
-        if payload.intelligence_data:
-            webhook_data["intelligence_data"] = payload.intelligence_data
+        if payload.status:
+            webhook_data["status"] = payload.status
 
         # Add error if present
         if payload.error:

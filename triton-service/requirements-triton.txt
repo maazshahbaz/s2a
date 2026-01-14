@@ -1,5 +1,0 @@
-sentencepiece
-nemo_toolkit[asr]
-librosa
-soundfile
-numpy

@@ -78,7 +78,7 @@ def create(name, key_type, rpm, rph, rpd, permissions):
             
             click.echo(f"\n✅ API Key created successfully!")
             click.echo(f"   Name: {name}")
-            click.echo(f"   Key ID: {key_info.key_id}")
+            click.echo(f"   Key ID: {key_info.key}")
             click.echo(f"   Type: {key_type}")
             click.echo(f"\n🔑 API Key: {api_key}")
             click.echo(f"\n⚠️  Save this key securely - it won't be shown again!")
@@ -114,7 +114,7 @@ def list():
                 last_used = key.last_used.strftime("%Y-%m-%d %H:%M") if key.last_used else "Never"
                 
                 table_data.append([
-                    key.key_id,
+                    key.key,
                     key.name,
                     key.key_type.value,
                     status,
@@ -147,9 +147,9 @@ def show(key_id):
             keys = await store.list_keys()
             key_info = None
             
-            for key in keys:
-                if key.key_id.startswith(key_id):
-                    key_info = key
+            for key_object in keys:
+                if key_object.key.startswith(key_id):
+                    key_info = key_object
                     break
             
             if not key_info:
@@ -157,7 +157,7 @@ def show(key_id):
                 return
             
             click.echo(f"\n🔑 API Key Details:")
-            click.echo(f"   Key ID: {key_info.key_id}")
+            click.echo(f"   Key ID: {key_info.key}")
             click.echo(f"   Name: {key_info.name}")
             click.echo(f"   Type: {key_info.key_type.value}")
             click.echo(f"   Status: {'🟢 Active' if key_info.is_active else '🔴 Revoked'}")
@@ -200,9 +200,9 @@ def revoke(key_id):
             keys = await store.list_keys()
             key_info = None
             
-            for key in keys:
-                if key.key_id.startswith(key_id):
-                    key_info = key
+            for key_object in keys:
+                if key_object.key.startswith(key_id):
+                    key_info = key_object
                     break
             
             if not key_info:
@@ -211,11 +211,11 @@ def revoke(key_id):
             
             # Update the key to inactive status directly in database
             await db.authkey.update(
-                where={'keyHash': key_info.key_hash},
+                where={'hash': key_info.hash},
                 data={'isActive': False}
             )
             
-            click.echo(f"✅ API key {key_info.key_id} ({key_info.name}) has been revoked")
+            click.echo(f"✅ API key {key_info.key} ({key_info.name}) has been revoked")
             
         finally:
             await db.disconnect()
@@ -254,7 +254,7 @@ def stats():
             
             if most_used:
                 click.echo(f"\n🏆 Most Used Key:")
-                click.echo(f"   {most_used.name} ({most_used.key_id}): {most_used.usage_count:,} requests")
+                click.echo(f"   {most_used.name} ({most_used.key}): {most_used.usage_count:,} requests")
             
             # Key types breakdown
             type_counts = {}

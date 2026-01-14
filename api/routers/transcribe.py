@@ -34,9 +34,13 @@ async def transcribe_async(
     asr_svc, batch_proc = services
     job_id = str(uuid.uuid4())
     
-    # Validate callback URL
+    # Sanitize and validate callback URL
+    callback_url = webhook_sender.sanitize_url(callback_url)
+    logger.debug(f"Received callback_url: '{callback_url}' for job {job_id}")
+    
     if not webhook_sender.validate_callback_url(callback_url):
-        raise HTTPException(status_code=400, detail="Invalid callback_url. Must be a valid HTTP/HTTPS URL.")
+        logger.warning(f"Validation failed for callback_url: '{callback_url}'")
+        raise HTTPException(status_code=400, detail=f"Invalid callback_url: '{callback_url}'. Must be a valid HTTP/HTTPS URL.")
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
@@ -55,6 +59,9 @@ async def transcribe_async(
     try:
         # Get audio duration
         audio_duration = get_audio_duration(audio_path)
+        
+        # Get audio file size in bytes
+        audio_size = os.path.getsize(audio_path)
 
          # Check minimum duration (both sync/async same rule)
         if audio_duration < asr_svc.min_audio_duration:
@@ -76,7 +83,8 @@ async def transcribe_async(
             remove_silence=remove_silence,
             priority=priority,
             callback_url=callback_url,
-            audio_duration=audio_duration
+            audio_duration=audio_duration,
+            audio_size=audio_size
         )
         
         # Add to background processing
@@ -155,7 +163,7 @@ async def get_transcription_status(
             text=result.text,
             duration=job.audioDuration or 0,
             rtf=result.rtf or 0,
-            processing_time=result.processingTime or 0,
+            processing_time=job.processingTime or 0,
             chunks=result.chunks or 1,
             confidence=result.confidence,
             audio_quality=result.audioQuality,

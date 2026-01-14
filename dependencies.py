@@ -1,10 +1,13 @@
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, Depends
 from loguru import logger
 from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
 from generated.prisma import Prisma
-from services.triton.triton_service import TritonService, run_async_pipeline
+from db_services.transcription import TranscriptionJobService
+from db_services.auth import PrismaAPIKeyStore
+from db_services.user import UserService
+from services.triton.triton_service import run_async_pipeline
 
 
 # Dependency to get services
@@ -31,63 +34,66 @@ async def process_audio_background_db(
     from datetime import datetime, timezone
     
     try:
-        # Update job status to processing
+        # Update job status to processing and get job for createdAt
+        job = None
         if transcription_svc:
-            await transcription_svc.update_job_status(job_id, 'processing', started_at=datetime.now(timezone.utc))
+            job = await transcription_svc.update_job_status(job_id, 'processing')
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # Define callback for result handling
         def pipeline_callback(raw_trans, labeled_trans, analysis, diar_info):
+            print("data", raw_trans, labeled_trans, analysis, diar_info)
             async def _handle_results():
-                    # Save result to DB
-                    if transcription_svc:
-                        # Extract intelligence result if available
-                        intelligence_result = None
-                        if analysis and isinstance(analysis, str):
-                            try:
-                                import json
-                                intelligence_result = json.loads(analysis)
-                            except:
-                                intelligence_result = {"raw": analysis}
-                        elif analysis:
-                            intelligence_result = analysis
+                # Calculate processing time from job creation
+                end_time = datetime.now(timezone.utc)
+                processing_time = 0.0
+                if job and job.createdAt:
+                    # Ensure createdAt is timezone-aware
+                    created_at = job.createdAt if job.createdAt.tzinfo else job.createdAt.replace(tzinfo=timezone.utc)
+                    processing_time = (end_time - created_at).total_seconds()
+                
+                # Save result to DB
+                if transcription_svc:
+                    intelligence_result = None
+                    if analysis:
+                        try:
+                            import json
+                            intelligence_result = json.loads(analysis) if isinstance(analysis, str) else analysis
+                        except:
+                            intelligence_result = {"raw": analysis}
 
-                  
-                        
-                        diarization_data = {
-                            'numSpeakers': diar_info.get('total_speakers', 0),
-                            'diarizationStatus': 'completed',
-                            'audioDuration': diar_info.get('audio_duration', 0),
-                            'info': diar_info 
-                        }
-
-                        await transcription_svc.save_transcription_result(
-                            job_id=job_id,
-                            text=raw_trans,
-                            diarization={'conversation':labeled_trans, "info":diar_info},
-                            intelligence=intelligence_result,
-                            confidence=1.0, 
-                            rtf=0.0,
-                            processing_time=0.0,
-                            chunks=diar_info.get('chunk_count', 0)
-                        )
-
-                    # Send webhook
-
-                    webhook_payload = WebhookPayload(
+                    await transcription_svc.save_transcription_result(
                         job_id=job_id,
-                        transcription=raw_trans,
-                        ai_analysis=intelligence_result['analysis'],
-                        diarized_transcription=labeled_trans
+                        text=raw_trans,
+                        diarization={'conversation':labeled_trans, "info":diar_info},
+                        intelligence=intelligence_result,
+                        confidence=1.0, 
+                        rtf=0.0,
+                        processing_time=processing_time,
+                        chunks=diar_info.get('chunk_count', 0)
                     )
-                    await webhook_sender.send_webhook(callback_url, webhook_payload)
 
-            # Run async logic synchronously within the thread
-            asyncio.run(_handle_results())
+                # Webhook
+                webhook_payload = WebhookPayload(
+                    job_id=job_id,
+                    transcription=raw_trans,
+                    ai_analysis=intelligence_result.get("analysis"),
+                    diarized_transcription=labeled_trans
+                )
+                await webhook_sender.send_webhook(callback_url, webhook_payload)
+
+            # Schedule it properly from thread
+            asyncio.run_coroutine_threadsafe(_handle_results(), loop)
+
 
         # Run pipeline in a separate thread to avoid blocking main loop
         # run_async_pipeline is synchronous and uses asyncio.run() internally
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, run_async_pipeline, audio_path, job_id, pipeline_callback)
+
+        await run_async_pipeline(audio_path, job_id, pipeline_callback)
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")
         
@@ -113,7 +119,18 @@ async def get_db(request: Request) -> Prisma:
     return request.app.state.db
 
 # Dependency to get transcription service
-def get_transcription_service(request: Request):
-    from db_services.transcription import TranscriptionJobService
-    db = request.app.state.db
+def get_transcription_service(
+    db = Depends(get_db)
+) -> TranscriptionJobService:
     return TranscriptionJobService(db)
+
+# Dependency to get auth key service
+def get_auth_service(
+    db = Depends(get_db)
+) -> PrismaAPIKeyStore:
+    return PrismaAPIKeyStore(db)
+
+def get_user_service(
+    db = Depends(get_db)
+) -> UserService:
+    return UserService(db)

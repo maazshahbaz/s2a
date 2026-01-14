@@ -1,0 +1,20 @@
+{
+  "services": {
+    "transcription": {
+      "url": "host.docker.internal:3501",
+      "model_name": "asr_model"
+    },
+    "diarization": {
+      "url": "host.docker.internal:3601",
+      "model_name": "diarization_model"
+    },
+    "analysis": {
+      "url": "host.docker.internal:3701",
+      "model_name": "mistral-nemo"
+    },
+    "speaker_correction": {
+      "url": "host.docker.internal:3701",
+      "model_name": "mistral-nemo"
+    }
+  }
+}

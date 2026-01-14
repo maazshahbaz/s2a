@@ -54,7 +54,9 @@ class APIKeyType(Enum):
 class APIKey(BaseModel):
     key_id: str
     key_hash: str
+    masked_key: Optional[str] = None
     name: str
+    userId: int
     key_type: APIKeyType
     created_at: datetime
     last_used: Optional[datetime] = None
@@ -94,12 +96,22 @@ class PrismaAPIKeyStore:
     def __init__(self, db: Prisma):
         self.db = db
 
-    async def create_key(self, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
+    async def create_key(self, user_id:int, name: str, key_type: APIKeyType = APIKeyType.PROJECT, **kwargs) -> tuple[str, APIKey]:
         """Create a new API key and store it in the database"""
         # Generate plaintext key
         key_suffix = secrets.token_urlsafe(32)
         api_key = f"{key_type.value}-{key_suffix}"
         key_hash = hash_api_key(api_key)
+        
+        # Generate masked key (first 2 chars of suffix + ... + last 4 chars)
+        # api_key format: prefix-suffix
+        # We want to show prefix + first 2 of suffix + ... + last 4 of suffix
+        # Or just first 2 of the whole key? User asked for "first 2 and last 4 letters of original key"
+        # Let's assume they mean the whole string.
+        if len(api_key) > 6:
+            masked_key = f"{api_key[:2]}...{api_key[-4:]}"
+        else:
+            masked_key = "***"
 
         # Default permissions
         permissions = kwargs.get('permissions', ["transcribe", "status", "stats"])
@@ -108,8 +120,9 @@ class PrismaAPIKeyStore:
             # Create in database
             auth_key = await self.db.authkey.create(
                 data={
-                    'keyId': key_hash[:12],
-                    'keyHash': key_hash,
+                    'hash': key_hash,
+                    'maskedKey': masked_key,
+                    'userId':user_id,
                     'name': name,
                     'keyType': key_type.value,
                     'requestsPerMinute': kwargs.get('requests_per_minute', 60),
@@ -134,7 +147,7 @@ class PrismaAPIKeyStore:
         
         try:
             auth_key = await self.db.authkey.find_unique(
-                where={'keyHash': key_hash}
+                where={'hash': key_hash}
             )
             
             if auth_key:
@@ -173,7 +186,7 @@ class PrismaAPIKeyStore:
                 update_data['totalAudioMinutes'] = {'increment': audio_duration / 60.0}
             
             await self.db.authkey.update(
-                where={'keyHash': key_hash},
+                where={'hash': key_hash},
                 data=update_data
             )
         except Exception as e:
@@ -185,12 +198,12 @@ class PrismaAPIKeyStore:
         
         try:
             result = await self.db.authkey.update(
-                where={'keyHash': key_hash},
+                where={'hash': key_hash},
                 data={'isActive': False}
             )
             
             if result:
-                logger.info(f"Revoked API key: {result.keyId}")
+                logger.info(f"Revoked API key: {result.key}")
                 return True
             return False
             
@@ -198,10 +211,11 @@ class PrismaAPIKeyStore:
             logger.error(f"Failed to revoke API key: {e}")
             return False
 
-    async def list_keys(self) -> List[APIKey]:
+    async def list_keys(self, user_id: int) -> List[APIKey]:
         """List all API keys"""
         try:
             auth_keys = await self.db.authkey.find_many(
+                where={'userId': user_id},
                 order={'createdAt': 'desc'}
             )
             
@@ -214,9 +228,11 @@ class PrismaAPIKeyStore:
     def _auth_key_to_api_key(self, auth_key) -> APIKey:
         """Convert Prisma AuthKey model to APIKey pydantic model"""
         return APIKey(
-            key_id=auth_key.keyId,
-            key_hash=auth_key.keyHash,
+            key_id=auth_key.key,
+            key_hash=auth_key.hash,
+            masked_key=auth_key.maskedKey,
             name=auth_key.name,
+            userId=auth_key.userId,
             key_type=APIKeyType(auth_key.keyType),
             created_at=auth_key.createdAt,
             last_used=auth_key.lastUsed,
