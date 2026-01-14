@@ -1,5 +1,5 @@
 from typing import List, Tuple, Dict
-from speaker_corrector import LLMSpeakerCorrector
+from .speaker_corrector import LLMSpeakerCorrector
 from .config_loader import config
 
 
