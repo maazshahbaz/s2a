@@ -34,8 +34,10 @@ async def transcribe_async(
     asr_svc, batch_proc = services
     job_id = str(uuid.uuid4())
     
-    # Validate callback URL
+    # Sanitize and validate callback URL
+    callback_url = webhook_sender.sanitize_url(callback_url)
     logger.debug(f"Received callback_url: '{callback_url}' for job {job_id}")
+    
     if not webhook_sender.validate_callback_url(callback_url):
         logger.warning(f"Validation failed for callback_url: '{callback_url}'")
         raise HTTPException(status_code=400, detail=f"Invalid callback_url: '{callback_url}'. Must be a valid HTTP/HTTPS URL.")

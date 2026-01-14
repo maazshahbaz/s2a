@@ -26,8 +26,11 @@ class WebhookSender:
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-    
-    
+    def sanitize_url(self, url: str) -> str:
+        """Sanitize URL by stripping whitespace, quotes, and semicolons"""
+        if not url:
+            return ""
+        return url.strip("'\"; ")
 
     def validate_callback_url(self, url: str) -> bool:
         """Validate callback URL format and security"""
@@ -36,8 +39,8 @@ class WebhookSender:
             return False
             
         try:
-            # Strip leading/trailing whitespace
-            clean_url = url.strip()
+            # Clean the URL
+            clean_url = self.sanitize_url(url)
             parsed = urlparse(clean_url)
             
             # Must be HTTP or HTTPS
