@@ -1,6 +1,6 @@
 """
 Triton Inference Server - Speaker Diarization with NVIDIA MSDD
-WORKING VERSION: Correct MSDD parameter names
+WORKING VERSION: Correct MSDD parameter names and feature extraction
 
 Model: NVIDIA MSDD for telephonic diarization
 Optimized for: 2-speaker CSR phone calls
@@ -250,19 +250,13 @@ class TritonPythonModel:
 
     def run_msdd(
         self,
+        audio: np.ndarray,
         embeddings: np.ndarray,
         embedding_times: List[tuple],
         initial_labels: np.ndarray
     ) -> List[Dict[str, Any]]:
         """
-        MSDD refinement with CORRECT parameter names:
-        - features (not audio_signal)
-        - feature_length (not audio_signal_length)
-        - ms_seg_timestamps
-        - ms_seg_counts
-        - clus_label_index
-        - scale_mapping
-        - targets
+        MSDD refinement - pass audio through encoder to get features
         """
         import torch
         
@@ -271,58 +265,85 @@ class TritonPythonModel:
         
         num_speakers = self.num_speakers
         seq_len = len(embeddings)
-        emb_dim = embeddings.shape[1]
         
-        print(f"[DEBUG] MSDD input: seq_len={seq_len}, emb_dim={emb_dim}, num_speakers={num_speakers}")
+        print(f"[DEBUG] MSDD input: seq_len={seq_len}, num_speakers={num_speakers}")
         
-        # 1. features: multiscale embeddings [B, T, scales, speakers, emb_dim]
-        num_scales = 5  # MSDD uses 5 scales
-        ms_embs = np.zeros((1, seq_len, num_scales, num_speakers, emb_dim), dtype=np.float32)
+        # Convert audio to tensor
+        audio_tensor = torch.from_numpy(audio).float().to(self.device)
+        if audio_tensor.dim() == 1:
+            audio_tensor = audio_tensor.unsqueeze(0)
         
-        # Assign embeddings to speakers based on clustering
-        for i, (emb, label) in enumerate(zip(embeddings, initial_labels)):
-            # Replicate across all scales
-            for scale_idx in range(num_scales):
-                ms_embs[0, i, scale_idx, label] = emb
+        audio_length = torch.tensor([audio_tensor.shape[1]], dtype=torch.long, device=self.device)
         
-        features = torch.from_numpy(ms_embs).to(self.device)
+        # Get audio features from MSDD encoder
+        with torch.no_grad():
+            try:
+                # Extract features using the model's preprocessor/encoder
+                processed_signal, processed_length = self.msdd_model.preprocessor(
+                    input_signal=audio_tensor,
+                    length=audio_length
+                )
+                
+                # Get encoder features
+                encoded, encoded_len = self.msdd_model.encoder(
+                    audio_signal=processed_signal,
+                    length=processed_length
+                )
+            except Exception as e:
+                print(f"[WARNING] Failed to extract MSDD features: {e}")
+                return self._labels_to_segments(embedding_times, initial_labels)
         
-        # 2. feature_length: [B]
-        feature_length = torch.tensor([seq_len], dtype=torch.long, device=self.device)
+        features = encoded  # Shape: (batch, time, feature_dim)
+        feature_length = encoded_len
         
-        # 3. ms_seg_timestamps: timestamps for each embedding [B, T, 2]
-        # Format: [start_time, end_time] for each embedding window
-        timestamps = np.zeros((1, seq_len, 2), dtype=np.float32)
-        for i, (start, end) in enumerate(embedding_times):
-            timestamps[0, i, 0] = start
-            timestamps[0, i, 1] = end
+        print(f"[DEBUG] Encoded features shape: {features.shape}")
+        
+        # Create timestamps for the encoded features
+        # Map embedding timestamps to encoder frame indices
+        total_duration = len(audio) / self.sample_rate
+        feature_frames = features.shape[1]
+        frame_duration = total_duration / feature_frames
+        
+        # Create timestamps aligned with encoder frames
+        timestamps = np.zeros((1, feature_frames, 2), dtype=np.float32)
+        for i in range(feature_frames):
+            timestamps[0, i, 0] = i * frame_duration
+            timestamps[0, i, 1] = (i + 1) * frame_duration
         ms_seg_timestamps = torch.from_numpy(timestamps).to(self.device)
         
-        # 4. ms_seg_counts: number of segments per scale [B, scales]
-        # For our case, all scales have the same segments
-        seg_counts = np.full((1, num_scales), seq_len, dtype=np.int64)
-        ms_seg_counts = torch.from_numpy(seg_counts).to(self.device)
-        
-        # 5. clus_label_index: initial cluster labels [B, T]
-        clus_labels = torch.from_numpy(initial_labels).unsqueeze(0).long().to(self.device)
-        
-        # 6. scale_mapping: multiscale configuration
+        # Scale configuration
+        num_scales = 5
         scale_mapping = [[0.5, 0.25], [0.75, 0.375], [1.0, 0.5], [1.25, 0.625], [1.5, 0.75]]
         
-        # 7. targets: one-hot speaker labels [B, T, speakers]
-        targets = torch.zeros(1, seq_len, num_speakers, device=self.device)
-        for i, label in enumerate(initial_labels):
+        # Segment counts per scale
+        seg_counts = np.full((1, num_scales), feature_frames, dtype=np.int64)
+        ms_seg_counts = torch.from_numpy(seg_counts).to(self.device)
+        
+        # Map initial clustering labels to encoder frames
+        clus_labels = torch.zeros(1, feature_frames, dtype=torch.long, device=self.device)
+        for i, (start, end) in enumerate(embedding_times):
+            label = initial_labels[i]
+            # Find corresponding frame indices
+            start_frame = int(start / frame_duration)
+            end_frame = int(end / frame_duration)
+            end_frame = min(end_frame, feature_frames)
+            clus_labels[0, start_frame:end_frame] = label
+        
+        # Create target labels
+        targets = torch.zeros(1, feature_frames, num_speakers, device=self.device)
+        for i in range(feature_frames):
+            label = clus_labels[0, i].item()
             targets[0, i, label] = 1.0
         
         print(f"[DEBUG] MSDD tensor shapes:")
         print(f"  features: {features.shape}")
-        print(f"  feature_length: {feature_length.shape}")
+        print(f"  feature_length: {feature_length}")
         print(f"  ms_seg_timestamps: {ms_seg_timestamps.shape}")
         print(f"  ms_seg_counts: {ms_seg_counts.shape}")
         print(f"  clus_labels: {clus_labels.shape}")
         print(f"  targets: {targets.shape}")
         
-        # Run MSDD with correct parameter names
+        # Run MSDD
         with torch.no_grad():
             try:
                 output = self.msdd_model(
@@ -362,19 +383,19 @@ class TritonPythonModel:
                 print(traceback.format_exc())
                 return self._labels_to_segments(embedding_times, initial_labels)
         
-        # Convert to segments
-        segments = self._msdd_to_segments(probs, embedding_times)
+        # Convert encoder frame probabilities back to segments
+        segments = self._msdd_to_segments_from_frames(probs, frame_duration)
         
         return segments
 
-    def _msdd_to_segments(
+    def _msdd_to_segments_from_frames(
         self,
         probs: np.ndarray,
-        times: List[tuple],
+        frame_duration: float,
         threshold: float = 0.5,
         min_duration: float = 0.2
     ) -> List[Dict[str, Any]]:
-        """Convert MSDD probabilities to segments"""
+        """Convert MSDD frame-level probabilities to segments"""
         
         if probs.ndim != 2:
             print(f"[ERROR] Expected 2D probs, got {probs.shape}")
@@ -386,13 +407,13 @@ class TritonPythonModel:
         
         segments = []
         current_speaker = speaker_ids[0]
-        seg_start_idx = 0
+        seg_start_frame = 0
         
-        for i in range(1, len(times)):
+        for i in range(1, len(speaker_ids)):
             if speaker_ids[i] != current_speaker:
                 if current_speaker != -1:
-                    start_time = times[seg_start_idx][0]
-                    end_time = times[i-1][1]
+                    start_time = seg_start_frame * frame_duration
+                    end_time = i * frame_duration
                     
                     if end_time - start_time >= min_duration:
                         segments.append({
@@ -402,12 +423,12 @@ class TritonPythonModel:
                             "duration": round(end_time - start_time, 3)
                         })
                 
-                seg_start_idx = i
+                seg_start_frame = i
                 current_speaker = speaker_ids[i]
         
         if current_speaker != -1:
-            start_time = times[seg_start_idx][0]
-            end_time = times[-1][1]
+            start_time = seg_start_frame * frame_duration
+            end_time = len(speaker_ids) * frame_duration
             if end_time - start_time >= min_duration:
                 segments.append({
                     "speaker": f"speaker_{current_speaker}",
@@ -530,7 +551,7 @@ class TritonPythonModel:
             print(f"[{request_id}]   ✓ Found {unique_labels} speakers in clustering")
             
             print(f"[{request_id}] Step 4: Running MSDD refinement...")
-            segments = self.run_msdd(embeddings, embedding_times, initial_labels)
+            segments = self.run_msdd(audio, embeddings, embedding_times, initial_labels)
             print(f"[{request_id}]   ✓ MSDD generated {len(segments)} segments")
             
             print(f"[{request_id}] Step 5: Merging adjacent same-speaker segments...")
