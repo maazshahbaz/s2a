@@ -7,7 +7,7 @@ from generated.prisma import Prisma
 from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore
 from db_services.user import UserService
-from services.triton.triton_service import TritonService, run_async_pipeline
+from services.triton.triton_service import run_async_pipeline
 
 
 # Dependency to get services
