@@ -11,7 +11,7 @@ from config import get_settings, get_redis_settings
 from api.routers import all_routers
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
-from services.triton.triton_service import TritonService
+from intelligent_pipeline.pipeline import Pipeline
 
 prisma = Prisma()
 
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Triton Inference Service...")
 
     try:
-        app.state.triton_service = TritonService()
+        app.state.triton_service = Pipeline()
     except Exception as e:
         logger.error(f"Failed to initialize TritonService: {e}")
         app.state.triton_service = None

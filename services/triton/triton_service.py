@@ -1,6 +1,6 @@
 
 import asyncio
-from intelligent_pipeline import pipeline
+from intelligent_pipeline.pipeline import Pipeline
 
 def run_async_pipeline(audio_path: str, request_id: str, callback = None):
     """Convenience function to run the pipeline synchronously (e.g. for scripts)"""
