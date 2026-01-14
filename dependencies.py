@@ -92,7 +92,7 @@ async def process_audio_background_db(
         # Run pipeline in a separate thread to avoid blocking main loop
         # run_async_pipeline is synchronous and uses asyncio.run() internally
 
-        await loop.run_in_executor(None, run_async_pipeline, audio_path, job_id, pipeline_callback)
+        await run_async_pipeline(audio_path, job_id, pipeline_callback)
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")
         
