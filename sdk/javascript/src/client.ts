@@ -97,7 +97,7 @@ export class S2AClient {
         `Audio duration (${validation.duration}s) is less than async API limit (${MAX_ASYNC_AUDIO_DURATION}s).`
       );
     }
-  
+
     if (validation.duration && validation.duration > MAX_ASYNC_AUDIO_DURATION) {
       throw new AudioValidationError(
         `Audio duration (${validation.duration}s) exceeds async API limit (${MAX_ASYNC_AUDIO_DURATION}s).`
@@ -323,21 +323,21 @@ export class S2AClient {
     }
   }
 
-private parseTranscriptionResponse(data: any): TranscriptionResult {
-  return {
-    jobId: data.job_id,
-    status: data.status,
-    text: data.text || '',
-    duration: data.duration ||0,
-    rtf: data.rtf || 0,
-    processingTime: data.processing_time ||0,
-    chunks: data.chunks || 1,
-    confidence: data.confidence || 0,
-    audioQuality: data.audio_quality,
-    quickIntelligence: data.quick_intelligence ?? null,
-    enhancedIntelligenceStatus: data.enhanced_intelligence_status ?? null
-  };
-}
+  private parseTranscriptionResponse(data: any): TranscriptionResult {
+    return {
+      jobId: data.job_id,
+      status: data.status,
+      text: data.text || '',
+      duration: data.duration || 0,
+      rtf: data.rtf || 0,
+      processingTime: data.processing_time || 0,
+      chunks: data.chunks || 1,
+      confidence: data.confidence || 0,
+      audioQuality: data.audio_quality,
+      quickIntelligence: data.quick_intelligence ?? null,
+      enhancedIntelligenceStatus: data.enhanced_intelligence_status ?? null
+    };
+  }
   private parseAsyncJobResponse(data: any): AsyncJob {
     return {
       jobId: data.job_id,
@@ -349,9 +349,9 @@ private parseTranscriptionResponse(data: any): TranscriptionResult {
     return {
       jobId: data.job_id,
       status: data.status as JobStatusType,
-      error: data.error ,
+      error: data.error,
       result: data.result
-      ? {
+        ? {
           jobId: data.result.job_id,
           status: data.result.status,
           text: data.result.text ?? null,
@@ -364,7 +364,7 @@ private parseTranscriptionResponse(data: any): TranscriptionResult {
           quickIntelligence: data.result.quick_intelligence ?? null,
           enhancedIntelligenceStatus: data.result.enhanced_intelligence_status ?? null
         }
-      : null
+        : null
     };
   }
 
