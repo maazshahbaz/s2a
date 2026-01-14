@@ -110,21 +110,41 @@ services:
       timeout: 10s
       retries: 3
       start_period: 120s
-  # Monitoring services commented out for initial deployment
-  # Uncomment and configure monitoring files if needed
-  # prometheus:
-  #   image: prom/prometheus:latest
-  #   ports:
-  #     - "9091:9090"
-  #   restart: unless-stopped
+    # Monitoring services commented out for initial deployment
+    # Uncomment and configure monitoring files if needed
+    # prometheus:
+    #   image: prom/prometheus:latest
+    #   ports:
+    #     - "9091:9090"
+    #   restart: unless-stopped
 
-  # grafana:
-  #   image: grafana/grafana:latest
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     - GF_SECURITY_ADMIN_PASSWORD=admin
-  #   restart: unless-stopped
+    # grafana:
+    #   image: grafana/grafana:latest
+    #   ports:
+    #     - "3000:3000"
+    #   environment:
+    #     - GF_SECURITY_ADMIN_PASSWORD=admin
+    #   restart: unless-stopped
+    # Next.js Portal (Frontend)
+  nextjs-portal:
+    build:
+      context: ./api_portal
+      dockerfile: Dockerfile
+    container_name: nextjs_portal
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./api_portal/.env
+    networks:
+      - s2a-network
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      s2a-api:
+        condition: service_healthy
 
 networks:
   s2a-network:

@@ -1,9 +1,12 @@
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, Depends
 from loguru import logger
 from webhook import webhook_sender, WebhookPayload
 import asyncio
 import os
 from generated.prisma import Prisma
+from db_services.transcription import TranscriptionJobService
+from db_services.auth import PrismaAPIKeyStore
+from db_services.user import UserService
 from services.triton.triton_service import TritonService, run_async_pipeline
 
 
@@ -115,7 +118,18 @@ async def get_db(request: Request) -> Prisma:
     return request.app.state.db
 
 # Dependency to get transcription service
-def get_transcription_service(request: Request):
-    from db_services.transcription import TranscriptionJobService
-    db = request.app.state.db
+def get_transcription_service(
+    db = Depends(get_db)
+) -> TranscriptionJobService:
     return TranscriptionJobService(db)
+
+# Dependency to get auth key service
+def get_auth_service(
+    db = Depends(get_db)
+) -> PrismaAPIKeyStore:
+    return PrismaAPIKeyStore(db)
+
+def get_user_service(
+    db = Depends(get_db)
+) -> UserService:
+    return UserService(db)
