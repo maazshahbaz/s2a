@@ -46,6 +46,7 @@ async def process_audio_background_db(
             asyncio.set_event_loop(loop)
         
         def pipeline_callback(raw_trans, labeled_trans, analysis, diar_info):
+            print("data", raw_trans, labeled_trans, analysis, diar_info)
             async def _handle_results():
                 # Calculate processing time from job creation
                 end_time = datetime.now(timezone.utc)
