@@ -1,0 +1,37 @@
+SENTIMENT ANALYSIS EVALUATION REPORT
+Generated: 20260122_204929
+Input file: C:\Users\maazs\Downloads\call_sentiment_analysis.xlsx
+============================================================
+
+Total samples: 50
+Exact accuracy: 38.0%
+Adjacent accuracy: 88.0%
+
+CLASSIFICATION REPORT
+               precision    recall  f1-score   support
+
+Very Negative       0.00      0.00      0.00         1
+     Negative       0.17      0.40      0.24         5
+      Neutral       0.39      0.81      0.53        16
+     Positive       1.00      0.04      0.08        24
+Very Positive       0.75      0.75      0.75         4
+
+     accuracy                           0.38        50
+    macro avg       0.46      0.40      0.32        50
+ weighted avg       0.68      0.38      0.29        50
+
+
+GROUND TRUTH DISTRIBUTION:
+Actual
+Negative          5
+Neutral          16
+Positive         24
+Very Negative     1
+Very Positive     4
+
+PREDICTION DISTRIBUTION:
+Predicted
+Negative         12
+Neutral          33
+Positive          1
+Very Positive     4
