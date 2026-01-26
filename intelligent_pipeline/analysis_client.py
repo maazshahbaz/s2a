@@ -16,9 +16,9 @@ class CallType(BaseModel):
 
 
 class Sentiment(BaseModel):
-    category: Literal["Positive", "Negative", "Neutral", "Mixed"] = "Neutral"
+    category: Literal["Very Positive", "Positive", "Neutral", "Negative", "Very Negative", "No Sentiment"] = "Neutral"
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    reasoning: str = Field(default = "")
+    reasoning: str = Field(default="")
     key_indicators: List[str] = Field(default_factory=list)
 
     @field_validator('key_indicators', mode='before')
@@ -26,7 +26,6 @@ class Sentiment(BaseModel):
     def clean_key_indicators(cls, v):
         if not isinstance(v, list):
             return []
-        # Remove empty strings, strip whitespace, and remove duplicates
         cleaned = [str(item).strip() for item in v if item and str(item).strip()]
         return list(set(cleaned))
 
@@ -35,25 +34,24 @@ class Sentiment(BaseModel):
     def clean_reasoning(cls, v):
         if not isinstance(v, str):
             return ""
-        # Remove empty strings, strip whitespace, and remove duplicates
-        cleaned = str(v)
-        return cleaned
-    
-    
+        return str(v)
+
     @field_validator('category', mode='before')
     @classmethod
     def normalize_category(cls, v):
         if not v:
             return "Neutral"
-        v_str = str(v).lower()
-        if "very positive" in v_str:
+        v_str = str(v).lower().strip()
+        if "no sentiment" in v_str or "n/a" in v_str:
+            return "No Sentiment"
+        elif "very positive" in v_str:
             return "Very Positive"
-        if "positive" in v_str:
+        elif "very negative" in v_str:
+            return "Very Negative"
+        elif "positive" in v_str:
             return "Positive"
         elif "negative" in v_str:
             return "Negative"
-        elif "very negative" in v_str:
-            return "Very Negative"
         else:
             return "Neutral"
 
@@ -286,7 +284,7 @@ class AsyncAnalysis:
         self.client = None
         self.system_prompt = """You are an expert AI system specializing in call center analytics with advanced capabilities in:
 - Fraud detection and risk assessment
-- Sentiment analysis with confidence scoring (5-level scale: Very Positive, Positive, Neutral, Negative, Very Negative)
+- Sentiment analysis with confidence scoring (Very Positive, Positive, Neutral, Negative, Very Negative, No Sentiment)
 - Entity and information extraction
 - Business intelligence and opportunity identification
 - Call quality assessment and improvement recommendations
@@ -298,6 +296,7 @@ Sentiment Classification Guidelines:
 - Neutral: Customer is matter-of-fact, neither positive nor negative. Transactional interactions.
 - Negative: Customer expresses dissatisfaction, frustration, or complaints. Unhappy but manageable.
 - Very Negative: Customer is angry, hostile, threatens to leave, or uses strong negative language.
+- No Sentiment: Call connected to IVR, was forwarded but not picked up, or the call was picked up but there was insufficient conversation to determine sentiment (e.g., brief exchange, wrong number hang-up, immediate disconnect).
 
 Your responses must be precise, structured JSON that captures both high-level insights and granular details."""
         
@@ -558,7 +557,7 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
             "voicemail": true/false
         }},
         "sentiment": {{
-            "category": "Very Positive|Positive|Neutral|Negative|Very Negative",
+            "category": "Very Positive|Positive|Neutral|Negative|Very Negative|No Sentiment",
             "confidence": 0.0-1.0,
             "reasoning": Detailed Reason for the category assigned,
             "key_indicators": ["list of phrases that indicate the sentiment"]
