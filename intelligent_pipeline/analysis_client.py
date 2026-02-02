@@ -134,6 +134,27 @@ class ContactInfo(BaseModel):
             return None
         return str(v).strip()
 
+class RecordingConsent(BaseModel):
+    agent_disclosed_recording: bool = False
+    customer_consented_to_recording: bool = False
+
+    @field_validator(
+        'agent_disclosed_recording',
+        'customer_consented_to_recording',
+        mode='before'
+    )
+    @classmethod
+    def normalize_bool(cls, v):
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return False
+        v_str = str(v).strip().lower()
+        if v_str in {"true", "yes", "y", "1"}:
+            return True
+        if v_str in {"false", "no", "n", "0"}:
+            return False
+        return False
 
 class PersonalInfo(BaseModel):
     type: str
@@ -245,6 +266,7 @@ class AIAnalysis(BaseModel):
     sentiment: Sentiment = Field(default_factory=Sentiment)
     summary: str = "No summary available"
     call_status: CallStatus = Field(default_factory=CallStatus)
+    recording_consent: RecordingConsent = Field(default_factory=RecordingConsent)
     extracted_items: ExtractedItems = Field(default_factory=ExtractedItems)
     fraud_detection: FraudDetection = Field(default_factory=FraudDetection)
     # Optional fields that may appear in extended outputs
@@ -259,6 +281,18 @@ class AIAnalysis(BaseModel):
         # Remove excessive whitespace
         return " ".join(str(v).split())
 
+    @model_validator(mode="after")
+    def enforce_recording_consent_integrity(self):
+        if self.recording_consent is None:
+            self.recording_consent = RecordingConsent()
+
+        if not isinstance(self.recording_consent.agent_disclosed_recording, bool):
+            self.recording_consent.agent_disclosed_recording = False
+
+        if not isinstance(self.recording_consent.customer_consented_to_recording, bool):
+            self.recording_consent.customer_consented_to_recording = False
+
+        return self
 
 class Analysis(BaseModel):
     ai_analysis: AIAnalysis
@@ -522,7 +556,6 @@ Your responses must be precise, structured JSON that captures both high-level in
             outputs=outputs,
             request_id=request_id
         )
-        
         output_text = response.as_numpy("generated_text")[0].decode('utf-8')
         
         if isinstance(output_text, bytes):
@@ -569,6 +602,10 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
             "wrong_number": true/false,
             "callback_requested": true/false
         }},
+        "recording_consent": {{
+            "agent_disclosed_recording": true/false,
+            "customer_consented_to_recording": true/false
+        }},
         "extracted_items": {{
             "products": [
                 {{
@@ -599,6 +636,8 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
 
 IMPORTANT:
 - Return ONLY valid JSON with no additional text
+- For recording_consent fields, ambiguity MUST resolve to false.
+- Quantity MUST be an integer or null, never text values
 - Use null for missing values, never omit fields
 - Ensure all boolean values are lowercase (true/false)
 - Keep arrays empty [] if no items found
