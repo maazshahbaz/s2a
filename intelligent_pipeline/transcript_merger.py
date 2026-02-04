@@ -52,11 +52,6 @@ class TranscriptMerger:
     ]
     
     def __init__(self, triton_url: str = None):
-        """
-        Args:
-            triton_url: Triton server URL for LLM inference (default: from config)
-        """
-        # Load configuration if not provided
         if triton_url is None:
             service_config = config.get_service_config('speaker_correction')
             triton_url = service_config.get('url', 'localhost:3701')
@@ -64,50 +59,29 @@ class TranscriptMerger:
         self.llm_corrector = LLMSpeakerCorrector(triton_url=triton_url)
         print("[Merger] Initialized with LLM-based Agent/Customer labeling + IVR detection")
     
-    # ==================== SPEAKER RENUMBERING ====================
-    
     @staticmethod
     def _renumber_speakers_sequentially(aligned_words: List[Dict]) -> List[Dict]:
-        """
-        Renumber speakers to be sequential starting from speaker_0.
-        
-        This fixes cases where:
-        - Diarization has speaker_0, speaker_1, speaker_2
-        - But only speaker_1 and speaker_2 have words
-        - We need to renumber to speaker_0 and speaker_1 for LLM
-        
-        IVR labels are preserved as-is.
-        
-        Returns:
-            List of words with renumbered speakers
-        """
         if not aligned_words:
             return aligned_words
         
-        # Find all unique speakers (excluding IVR)
         unique_speakers = sorted(set(
             w['speaker'] for w in aligned_words 
             if w['speaker'] != 'IVR'
         ))
         
-        # Check if renumbering is needed
         expected_speakers = [f'speaker_{i}' for i in range(len(unique_speakers))]
         
         if unique_speakers == expected_speakers:
-            # Already sequential, no renumbering needed
             return aligned_words
         
-        # Create mapping
         speaker_mapping = {}
         for new_idx, old_speaker in enumerate(unique_speakers):
             speaker_mapping[old_speaker] = f'speaker_{new_idx}'
         
-        # Keep IVR as IVR
         speaker_mapping['IVR'] = 'IVR'
         
         print(f"[Renumber] Renumbering speakers: {speaker_mapping}")
         
-        # Apply mapping
         result = []
         for word in aligned_words:
             new_word = word.copy()
@@ -120,28 +94,13 @@ class TranscriptMerger:
         
         return result
     
-    # ==================== SPEAKER CONSOLIDATION (3 -> 2) ====================
-    
     @staticmethod
     def _analyze_speaker_statistics(aligned_words: List[Dict]) -> Dict[str, Dict]:
-        """
-        Analyze statistics for each speaker to help determine which to merge.
-        
-        Returns dict with speaker stats:
-        - word_count: total words
-        - total_duration: sum of word durations
-        - first_appearance: timestamp of first word
-        - last_appearance: timestamp of last word
-        - avg_word_duration: average word duration
-        - segment_count: number of continuous segments
-        - segments: list of (start_time, end_time, word_count) tuples
-        """
         if not aligned_words:
             return {}
         
         stats = {}
         
-        # First pass: basic stats
         for word in aligned_words:
             speaker = word['speaker']
             if speaker == 'IVR':
@@ -169,13 +128,11 @@ class TranscriptMerger:
             )
             stats[speaker]['words'].append(word)
         
-        # Second pass: segment analysis
         for speaker in stats:
             words = stats[speaker]['words']
             if not words:
                 continue
             
-            # Find continuous segments (gaps > 1 second = new segment)
             segments = []
             seg_start = words[0]['global_start']
             seg_end = words[0]['global_end']
@@ -184,7 +141,7 @@ class TranscriptMerger:
             for i in range(1, len(words)):
                 gap = words[i]['global_start'] - words[i-1]['global_end']
                 
-                if gap > 1.0:  # New segment
+                if gap > 1.0:
                     segments.append((seg_start, seg_end, seg_word_count))
                     seg_start = words[i]['global_start']
                     seg_end = words[i]['global_end']
@@ -193,7 +150,6 @@ class TranscriptMerger:
                     seg_end = words[i]['global_end']
                     seg_word_count += 1
             
-            # Last segment
             segments.append((seg_start, seg_end, seg_word_count))
             
             stats[speaker]['segments'] = segments
@@ -203,7 +159,6 @@ class TranscriptMerger:
                 if stats[speaker]['word_count'] > 0 else 0
             )
             
-            # Clean up
             del stats[speaker]['words']
         
         return stats
@@ -213,29 +168,16 @@ class TranscriptMerger:
         speaker_stats: Dict[str, Dict],
         aligned_words: List[Dict]
     ) -> Tuple[str, str]:
-        """
-        Determine which speaker should be merged into which other speaker.
-        
-        Heuristics (in order of priority):
-        1. Merge the speaker with fewest words into most similar speaker
-        2. If a speaker only appears at the beginning/end, merge into adjacent speaker
-        3. If a speaker's segments always follow/precede another, merge them
-        4. Default: merge smallest speaker into the one it interleaves with most
-        
-        Returns: (speaker_to_remove, speaker_to_merge_into)
-        """
         speakers = list(speaker_stats.keys())
         
         if len(speakers) <= 2:
             return None, None
         
-        # Sort by word count (ascending) - smallest first
         speakers_by_size = sorted(speakers, key=lambda s: speaker_stats[s]['word_count'])
         
         smallest_speaker = speakers_by_size[0]
         smallest_stats = speaker_stats[smallest_speaker]
         
-        # Get the other two speakers
         other_speakers = [s for s in speakers if s != smallest_speaker]
         
         print(f"\n[Consolidation] Analyzing speakers for merge:")
@@ -244,10 +186,8 @@ class TranscriptMerger:
             print(f"  {spk}: {s['word_count']} words, {s['segment_count']} segments, "
                   f"first@{s['first_appearance']:.1f}s, last@{s['last_appearance']:.1f}s")
         
-        # Heuristic 1: Check if smallest speaker only appears at beginning or end
         total_duration = max(s['last_appearance'] for s in speaker_stats.values())
         
-        # "Beginning" = first 15% of call, "End" = last 15% of call
         early_threshold = total_duration * 0.15
         late_threshold = total_duration * 0.85
         
@@ -256,7 +196,6 @@ class TranscriptMerger:
         
         if appears_only_early:
             print(f"[Consolidation] {smallest_speaker} only appears in first 15% of call")
-            # Find which speaker appears closest after this one
             merge_target = min(
                 other_speakers,
                 key=lambda s: speaker_stats[s]['first_appearance']
@@ -265,15 +204,12 @@ class TranscriptMerger:
         
         if appears_only_late:
             print(f"[Consolidation] {smallest_speaker} only appears in last 15% of call")
-            # Find which speaker appears closest before this one
             merge_target = max(
                 other_speakers,
                 key=lambda s: speaker_stats[s]['last_appearance']
             )
             return smallest_speaker, merge_target
         
-        # Heuristic 2: Check temporal adjacency - which speaker does the smallest
-        # speaker most often appear adjacent to?
         adjacency_count = {s: 0 for s in other_speakers}
         
         prev_speaker = None
@@ -287,7 +223,6 @@ class TranscriptMerger:
                 adjacency_count[prev_speaker] += 1
             prev_speaker = curr_speaker
         
-        # Find most adjacent speaker
         if any(adjacency_count.values()):
             most_adjacent = max(adjacency_count.items(), key=lambda x: x[1])
             if most_adjacent[1] > 0:
@@ -295,8 +230,6 @@ class TranscriptMerger:
                       f"({most_adjacent[1]} transitions)")
                 return smallest_speaker, most_adjacent[0]
         
-        # Heuristic 3: Check segment interleaving patterns
-        # Build timeline of segments
         all_segments = []
         for spk, stats in speaker_stats.items():
             for seg_start, seg_end, word_count in stats['segments']:
@@ -304,20 +237,16 @@ class TranscriptMerger:
         
         all_segments.sort(key=lambda x: x[0])
         
-        # Check what speakers appear before/after smallest speaker's segments
         before_counts = {s: 0 for s in other_speakers}
         after_counts = {s: 0 for s in other_speakers}
         
         for i, (start, end, spk, wc) in enumerate(all_segments):
             if spk == smallest_speaker:
-                # Check previous segment
                 if i > 0 and all_segments[i-1][2] in other_speakers:
                     before_counts[all_segments[i-1][2]] += 1
-                # Check next segment
                 if i < len(all_segments) - 1 and all_segments[i+1][2] in other_speakers:
                     after_counts[all_segments[i+1][2]] += 1
         
-        # If one speaker appears both before AND after most of the time, merge into them
         combined_counts = {s: before_counts[s] + after_counts[s] for s in other_speakers}
         most_surrounding = max(combined_counts.items(), key=lambda x: x[1])
         
@@ -326,7 +255,6 @@ class TranscriptMerger:
                   f"({most_surrounding[1]} times)")
             return smallest_speaker, most_surrounding[0]
         
-        # Heuristic 4: Default - merge into the speaker with more words
         merge_target = max(other_speakers, key=lambda s: speaker_stats[s]['word_count'])
         print(f"[Consolidation] Default: merging {smallest_speaker} into {merge_target} (largest)")
         return smallest_speaker, merge_target
@@ -337,9 +265,6 @@ class TranscriptMerger:
         speaker_to_remove: str,
         speaker_to_merge_into: str
     ) -> List[Dict]:
-        """
-        Merge one speaker into another, then renumber speakers sequentially.
-        """
         result = []
         
         for word in aligned_words:
@@ -349,11 +274,9 @@ class TranscriptMerger:
                 new_word['merged_from'] = speaker_to_remove
             result.append(new_word)
         
-        # Renumber speakers to be sequential (speaker_0, speaker_1)
         unique_speakers = sorted(set(w['speaker'] for w in result if w['speaker'] != 'IVR'))
         speaker_mapping = {old: f'speaker_{i}' for i, old in enumerate(unique_speakers)}
         
-        # Keep IVR as IVR
         speaker_mapping['IVR'] = 'IVR'
         
         for word in result:
@@ -371,34 +294,20 @@ class TranscriptMerger:
         ivr_detected: bool,
         diarization_speaker_count: int
     ) -> bool:
-        """
-        Determine if we should consolidate 3 speakers to 2.
-        
-        Conditions:
-        1. No IVR was detected by content matching
-        2. We have 3+ unique speakers in the words
-        3. This is a telephonic call (max 2 human speakers expected)
-        """
         if ivr_detected:
             return False
         
         unique_speakers = set(w['speaker'] for w in aligned_words if w['speaker'] != 'IVR')
         
-        # Only consolidate if we have exactly 3 speakers
         return len(unique_speakers) == 3
     
     # ==================== IVR DETECTION ====================
     
     @staticmethod
     def _detect_ivr_phrase_boundaries(aligned_words: List[Dict]) -> List[Tuple[int, int, str]]:
-        """
-        Detect IVR phrases in the aligned words based on content patterns.
-        Returns list of (start_idx, end_idx, pattern_matched) tuples.
-        """
         if not aligned_words:
             return []
         
-        # Build the full text and track word boundaries
         full_text = ' '.join(w['text'] for w in aligned_words).lower()
         
         ivr_regions = []
@@ -414,7 +323,6 @@ class TranscriptMerger:
                 
                 end_pos = idx + len(pattern_lower)
                 
-                # Find which word indices this corresponds to
                 char_count = 0
                 start_word_idx = None
                 end_word_idx = None
@@ -437,7 +345,6 @@ class TranscriptMerger:
                 
                 start_pos = end_pos
         
-        # Merge overlapping regions
         if not ivr_regions:
             return []
         
@@ -454,13 +361,139 @@ class TranscriptMerger:
         return merged
     
     @staticmethod
+    def _expand_ivr_regions_to_speaker_segments(
+        aligned_words: List[Dict],
+        ivr_regions: List[Tuple[int, int, str]]
+    ) -> List[Tuple[int, int, str]]:
+        """
+        Expand IVR regions to cover full contiguous speaker segments.
+        
+        Logic:
+        - For each IVR region, find the original speaker of those words
+        - Extend the region to cover all contiguous words by that same speaker
+          that are adjacent to or between IVR matches
+        - Bridge gaps between nearby IVR regions from the same speaker
+        
+        This ensures that "Thank you for calling MTC home of the Fixture-Free 
+        Guarantee. Please wait while we answer your call." gets fully tagged as 
+        IVR, not just the "thank you for calling" and "please wait" fragments.
+        """
+        if not ivr_regions or not aligned_words:
+            return ivr_regions
+        
+        # Step 1: Find the dominant original speaker for each IVR region
+        region_speakers = []
+        for start_idx, end_idx, pattern in ivr_regions:
+            speaker_counts = {}
+            for i in range(start_idx, min(end_idx + 1, len(aligned_words))):
+                spk = aligned_words[i]['speaker']
+                speaker_counts[spk] = speaker_counts.get(spk, 0) + 1
+            dominant_speaker = max(speaker_counts, key=speaker_counts.get) if speaker_counts else None
+            region_speakers.append(dominant_speaker)
+        
+        # Step 2: Bridge nearby IVR regions from the same speaker
+        # If two IVR regions are close and share a speaker, the gap between
+        # them is almost certainly part of the same IVR message
+        bridged = []
+        i = 0
+        while i < len(ivr_regions):
+            start_idx, end_idx, pattern = ivr_regions[i]
+            speaker = region_speakers[i]
+            
+            # Look ahead to see if next region(s) can be bridged
+            j = i + 1
+            while j < len(ivr_regions):
+                next_start, next_end, next_pattern = ivr_regions[j]
+                next_speaker = region_speakers[j]
+                
+                # Check if gap between regions is all from the same speaker
+                gap_same_speaker = True
+                if next_start > end_idx + 1:
+                    for k in range(end_idx + 1, next_start):
+                        if k < len(aligned_words) and aligned_words[k]['speaker'] != speaker:
+                            gap_same_speaker = False
+                            break
+                
+                # Bridge if: same speaker AND (gap is small OR gap is same speaker)
+                gap_words = next_start - end_idx - 1
+                time_gap = 0.0
+                if end_idx < len(aligned_words) and next_start < len(aligned_words):
+                    time_gap = (aligned_words[next_start]['global_start'] - 
+                               aligned_words[end_idx]['global_end'])
+                
+                should_bridge = (
+                    next_speaker == speaker and 
+                    gap_same_speaker and
+                    (gap_words <= 20 or time_gap <= 5.0)  # reasonable gap limits
+                )
+                
+                if should_bridge:
+                    end_idx = next_end
+                    pattern = pattern + " + " + next_pattern
+                    j += 1
+                else:
+                    break
+            
+            bridged.append((start_idx, end_idx, pattern, speaker))
+            i = j
+        
+        # Step 3: Expand each bridged region to cover the full contiguous 
+        # speaker segment from the same speaker
+        expanded = []
+        for start_idx, end_idx, pattern, speaker in bridged:
+            # Expand backward: include contiguous words from same speaker
+            new_start = start_idx
+            while new_start > 0 and aligned_words[new_start - 1]['speaker'] == speaker:
+                # Stop if we hit a large time gap (> 2 seconds) - likely a different utterance
+                time_gap = (aligned_words[new_start]['global_start'] - 
+                           aligned_words[new_start - 1]['global_end'])
+                if time_gap > 2.0:
+                    break
+                new_start -= 1
+            
+            # Expand forward: include contiguous words from same speaker
+            new_end = end_idx
+            while (new_end < len(aligned_words) - 1 and 
+                   aligned_words[new_end + 1]['speaker'] == speaker):
+                # Stop if we hit a large time gap (> 2 seconds)
+                time_gap = (aligned_words[new_end + 1]['global_start'] - 
+                           aligned_words[new_end]['global_end'])
+                if time_gap > 2.0:
+                    break
+                new_end += 1
+            
+            if new_start != start_idx or new_end != end_idx:
+                expanded_text = ' '.join(
+                    aligned_words[k]['text'] 
+                    for k in range(new_start, min(new_end + 1, len(aligned_words)))
+                )
+                print(f"[IVR Expand] Expanded region [{start_idx}:{end_idx}] -> "
+                      f"[{new_start}:{new_end}] for speaker {speaker}")
+                print(f"[IVR Expand] Full text: \"{expanded_text}\"")
+            
+            expanded.append((new_start, new_end, pattern))
+        
+        # Step 4: Final merge of any overlapping expanded regions
+        if not expanded:
+            return expanded
+        
+        expanded.sort(key=lambda x: x[0])
+        final = [expanded[0]]
+        
+        for region in expanded[1:]:
+            last = final[-1]
+            if region[0] <= last[1] + 1:
+                final[-1] = (last[0], max(last[1], region[1]), last[2] + " + " + region[2])
+            else:
+                final.append(region)
+        
+        return final
+    
+    @staticmethod
     def _split_ivr_from_human_speech(
         aligned_words: List[Dict],
         ivr_regions: List[Tuple[int, int, str]]
     ) -> List[Dict]:
-        """
-        Mark words that are part of IVR phrases with a special speaker label.
-        """
         if not ivr_regions:
             return aligned_words
         
@@ -499,9 +532,6 @@ class TranscriptMerger:
         diarization_segments: List[Dict],
         chunk_offset: float
     ) -> List[Dict]:
-        """
-        Align word timestamps with diarization segments.
-        """
         if not diarization_segments:
             aligned_words = []
             for word in word_timestamps:
@@ -576,10 +606,6 @@ class TranscriptMerger:
         min_duration: float = 0.5,
         diarization_speaker_count: int = 2
     ) -> List[Dict]:
-        """
-        Smooth out rapid speaker changes (speaker ping-pong).
-        IMPORTANT: Never smooth away IVR labels.
-        """
         if len(aligned_words) < 3:
             return aligned_words
         
@@ -655,9 +681,6 @@ class TranscriptMerger:
         aligned_words: List[Dict], 
         min_duration: float = 0.15
     ) -> List[Dict]:
-        """
-        Conservative smoothing for 3+ speaker scenarios.
-        """
         if len(aligned_words) < 3:
             return aligned_words
         
@@ -723,9 +746,6 @@ class TranscriptMerger:
     
     @staticmethod
     def _format_with_speakers(aligned_words: List[Dict]) -> str:
-        """
-        Format aligned words into readable transcription with speaker labels.
-        """
         if not aligned_words:
             return ""
         
@@ -772,23 +792,9 @@ class TranscriptMerger:
         diarization_results: List[Dict],
         chunk_timings: List[Tuple[float, float]]
     ) -> Tuple[str, str]:
-        """
-        Merge transcriptions with diarization results and assign Agent/Customer labels.
-        
-        Pipeline:
-        1. Align words with diarization
-        2. Renumber speakers sequentially (speaker_0, speaker_1, ...)
-        3. Detect IVR phrases by content
-        4. If no IVR but 3 speakers: consolidate to 2 speakers
-        5. Smooth speaker changes
-        6. Final renumbering to ensure speaker_0, speaker_1
-        7. Format transcript
-        8. Use LLM to assign Agent/Customer labels
-        """
         all_raw_text = []
         all_aligned_words = []
         
-        # Count speakers from diarization
         all_speakers_in_diarization = set()
         for diar in diarization_results:
             for seg in diar.get('segments', []):
@@ -837,11 +843,9 @@ class TranscriptMerger:
         raw_transcription = ' '.join(all_raw_text)
         
         # Step 2: Renumber speakers sequentially AFTER alignment
-        # This fixes cases where diarization has speaker_1, speaker_2 but no speaker_0
         print("[Merger] Renumbering speakers sequentially...")
         all_aligned_words = self._renumber_speakers_sequentially(all_aligned_words)
         
-        # Debug: Check speaker distribution after renumbering
         if all_aligned_words:
             post_renumber_speakers = {}
             for word in all_aligned_words:
@@ -855,11 +859,18 @@ class TranscriptMerger:
         ivr_detected = len(ivr_regions) > 0
         
         if ivr_detected:
-            print(f"[Merger] Found {len(ivr_regions)} IVR regions:")
+            # NEW: Expand IVR regions to cover full speaker segments
+            print(f"[Merger] Found {len(ivr_regions)} initial IVR regions, expanding to full segments...")
+            ivr_regions = self._expand_ivr_regions_to_speaker_segments(
+                all_aligned_words, ivr_regions
+            )
+            
+            print(f"[Merger] {len(ivr_regions)} IVR regions after expansion:")
             for start_idx, end_idx, pattern in ivr_regions:
                 start_time = all_aligned_words[start_idx]['global_start']
                 end_time = all_aligned_words[end_idx]['global_end']
-                print(f"  - {start_time:.2f}s to {end_time:.2f}s: '{pattern}'")
+                ivr_text = ' '.join(all_aligned_words[k]['text'] for k in range(start_idx, end_idx + 1))
+                print(f"  - {start_time:.2f}s to {end_time:.2f}s: '{ivr_text}'")
             
             # Mark IVR words
             all_aligned_words = self._split_ivr_from_human_speech(all_aligned_words, ivr_regions)
@@ -871,10 +882,8 @@ class TranscriptMerger:
             print("\n[Merger] *** SPEAKER CONSOLIDATION REQUIRED ***")
             print("[Merger] No IVR detected but 3 speakers found - consolidating to 2...")
             
-            # Analyze speaker statistics
             speaker_stats = self._analyze_speaker_statistics(all_aligned_words)
             
-            # Determine which speaker to merge
             speaker_to_remove, speaker_to_merge_into = self._find_speaker_to_merge(
                 speaker_stats, 
                 all_aligned_words
@@ -888,11 +897,9 @@ class TranscriptMerger:
                     speaker_to_merge_into
                 )
                 
-                # Update speaker count
                 unique_after = set(w['speaker'] for w in all_aligned_words if w['speaker'] != 'IVR')
                 print(f"[Merger] After consolidation: {len(unique_after)} speakers")
         
-        # Debug: Check speaker distribution BEFORE smoothing
         if all_aligned_words:
             pre_smooth_speakers = {}
             for word in all_aligned_words:
@@ -903,7 +910,6 @@ class TranscriptMerger:
         # Step 5: Apply speaker smoothing
         if all_aligned_words:
             print("[Merger] Smoothing rapid speaker changes...")
-            # After consolidation, we should have 2 speakers (or 2 + IVR)
             current_speaker_count = len(set(
                 w['speaker'] for w in all_aligned_words if w['speaker'] != 'IVR'
             ))
@@ -917,7 +923,6 @@ class TranscriptMerger:
         print("[Merger] Final speaker renumbering for LLM...")
         all_aligned_words = self._renumber_speakers_sequentially(all_aligned_words)
         
-        # Debug: Check speaker distribution AFTER smoothing and final renumbering
         if all_aligned_words:
             post_smooth_speakers = {}
             for word in all_aligned_words:
