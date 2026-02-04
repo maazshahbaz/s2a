@@ -7,14 +7,14 @@ from generated.prisma import Prisma
 from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore
 from db_services.user import UserService
-from services.triton.triton_service import run_async_pipeline
+from intelligent_pipeline.pipeline import Pipeline
 
-
-# Dependency to get services
-def get_services(request:Request):
-    if not all([request.app.state.asr_service, request.app.state.batch_processor]):
-        raise HTTPException(status_code=503, detail="Services not initialized")
-    return request.app.state.asr_service, request.app.state.batch_processor
+async def run_async_pipeline(audio_path: str, request_id: str, callback = None):
+    """Convenience function to run the pipeline synchronously (e.g. for scripts)"""
+    pipeline = Pipeline()
+    raw_transcription, labeled_transcription, analysis, metadata = await pipeline.run_pipeline(audio_path, request_id)
+    if callback:
+        callback(raw_transcription, labeled_transcription, analysis, metadata)
 
 async def process_audio_background_db(
     job_id: str,
@@ -23,8 +23,6 @@ async def process_audio_background_db(
     remove_silence: bool,
     priority: int,
     callback_url: str,
-    asr_svc,
-    batch_proc,
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
     api_key: str = None,

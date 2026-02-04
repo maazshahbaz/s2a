@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import tritonclient.grpc.aio as grpcclient_aio
 from pydantic import BaseModel, Field, field_validator
-from config_loader import config
+from .config_loader import config
 
 
 # Pydantic Models for validation

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTT
 from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 import os
 from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
-from dependencies import get_services, get_transcription_service
+from dependencies import get_transcription_service
 from db_services.auth import require_permission, update_request_usage, get_rate_limit_headers, APIKey
 from db_services.transcription import store_uploaded_file, delete_audio_file
 import uuid
@@ -27,11 +27,9 @@ async def transcribe_async(
     priority: int = 0,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
-    services = Depends(get_services),
     transcription_svc = Depends(get_transcription_service)
 ):
     """Asynchronous transcription endpoint - requires transcribe permission and callback_url"""
-    asr_svc, batch_proc = services
     job_id = str(uuid.uuid4())
     
     # Sanitize and validate callback URL
@@ -63,13 +61,15 @@ async def transcribe_async(
         # Get audio file size in bytes
         audio_size = os.path.getsize(audio_path)
 
+        settings = get_settings()
+
          # Check minimum duration (both sync/async same rule)
-        if audio_duration < asr_svc.min_audio_duration:
+        if audio_duration < settings.min_audio_duration:
             raise HTTPException(status_code=400, detail="Audio too short. Minimum duration is {settings.min_audio_duration} second.")
         
         
         # Check maximum duration for SYNC API (2 minutes max)
-        settings = get_settings()
+
         if audio_duration > settings.max_audio_duration:
             error_msg = f"Audio too long for API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
             raise HTTPException(status_code=400, detail=error_msg)
@@ -91,7 +91,7 @@ async def transcribe_async(
         background_tasks.add_task(
             process_audio_background_db,
             job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
-            asr_svc, batch_proc, include_intelligence, intelligence_mode,
+            include_intelligence, intelligence_mode,
             request.state.api_key, transcription_svc
         )
         
@@ -124,11 +124,9 @@ async def get_transcription_status(
     request: Request,
     response: Response,
     key_info: APIKey = Depends(require_permission("status")),
-    services = Depends(get_services),
     transcription_svc = Depends(get_transcription_service)
 ):
     """Get status of async transcription job - requires status permission"""
-    asr_svc,  batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)
@@ -186,10 +184,8 @@ async def cancel_job(
     request: Request,
     response: Response,
     key_info: APIKey = Depends(require_permission("transcribe")),
-    services = Depends(get_services)
 ):
     """Cancel a pending or processing job - requires transcribe permission"""
-    asr_svc, batch_proc = services
     
     # Add rate limit headers
     headers = get_rate_limit_headers(request)

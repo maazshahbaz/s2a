@@ -3,7 +3,7 @@ import json
 import os
 import soundfile as sf
 from typing import Tuple, Dict, List
-from config_loader import config
+from .config_loader import config
 
 from .audio_chunking import AudioChunking
 from .transcription_client import AsyncTranscriptionService

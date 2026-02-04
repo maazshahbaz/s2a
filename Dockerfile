@@ -30,25 +30,6 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install PyTorch (matching CUDA 12.8), torchvision, and torchaudio
-RUN pip install --no-cache-dir \
-  torch==2.9.0+cu128 \
-  torchvision==0.24.0+cu128 \
-  torchaudio==2.9.0+cu128 \
-  --index-url https://download.pytorch.org/whl/cu128
-
-# Install Ninja (needed for CUDA extensions)
-RUN pip install --no-cache-dir ninja
-
-# Clone and install Apex (for amp_C)
-RUN git clone https://github.com/NVIDIA/apex.git /tmp/apex \
-  && cd /tmp/apex \
-  && pip install --no-cache-dir --no-build-isolation . --global-option="--cpp_ext" --global-option="--cuda_ext" \
-  && cd /app && rm -rf /tmp/apex
-
-# Install NeMo ASR and Megatron-Core
-RUN pip install --no-cache-dir "nemo_toolkit[asr]" "megatron-core"
-
 # Install Prisma CLI globally
 RUN npm install -g prisma
 

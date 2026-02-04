@@ -39,31 +39,6 @@ class ASRConfig(BaseSettings):
         "extra": "ignore"  # Allow extra fields in .env
     }
 
-# Redis configuration for chunk queue system (Required)
-class RedisConfig(BaseSettings):
-    # Redis connection (required)
-    host: str = Field(default="localhost", description="Redis host")
-    port: int = Field(default=6379, description="Redis port")
-    db: int = Field(default=0, description="Redis database number")
-    password: Optional[str] = Field(default=None, description="Redis password")
-
-    # Queue configuration
-    queue_prefix: str = Field(default="stt", description="Prefix for Redis keys")
-    chunk_ttl: int = Field(default=86400, description="TTL for chunk data in seconds (24 hours)")
-
-    # Batch processing configuration
-    batch_size: int = Field(default=128, description="Max chunks per GPU batch (can mix jobs)")
-    num_workers: int = Field(default=1, description="Number of concurrent workers (1 is sufficient with batch_size=128)")
-
-    # Audio caching
-    audio_cache_size: int = Field(default=10, description="Number of audio files to cache in memory")
-
-    model_config = {
-        "env_prefix": "S2A_REDIS_",
-        "case_sensitive": False,
-        "extra": "ignore"
-    }
-
 # Performance monitoring configuration
 class PerformanceConfig(BaseSettings):
     enable_metrics: bool = Field(default=True, description="Enable performance metrics collection")
@@ -88,38 +63,9 @@ class PerformanceConfig(BaseSettings):
 
 # Global settings instances
 _settings = None
-_redis_settings = None
-_diarization_settings = None
 
 def get_settings() -> ASRConfig:
     global _settings
     if _settings is None:
         _settings = ASRConfig()
     return _settings
-
-def get_redis_settings() -> RedisConfig:
-    global _redis_settings
-    if _redis_settings is None:
-        _redis_settings = RedisConfig()
-    return _redis_settings
-
-
-# Diarization configuration
-class DiarizationConfig(BaseSettings):
-    enabled: bool = Field(default=True, description="Enable diarization pipeline (mandatory in API)")
-    model_name: str = Field(default="nvidia/diar_sortformer_4spk-v1", description="Diarization model from HuggingFace")
-    max_speakers: int = Field(default=4, description="Maximum number of speakers")
-    timeout_seconds: float = Field(default=120.0, description="Diarization timeout budget")
-
-    model_config = {
-        "env_prefix": "S2A_DIAR_",
-        "case_sensitive": False,
-        "extra": "ignore"
-    }
-
-
-def get_diarization_settings() -> DiarizationConfig:
-    global _diarization_settings
-    if _diarization_settings is None:
-        _diarization_settings = DiarizationConfig()
-    return _diarization_settings

@@ -5,9 +5,7 @@ import os
 from loguru import logger
 import time
 from contextlib import asynccontextmanager
-from services.asr_service import NeMoASRService
-from services.batch_processor import BatchProcessor, BatchProcessorConfig
-from config import get_settings, get_redis_settings
+from config import get_settings
 from api.routers import all_routers
 from generated.prisma import Prisma
 from db_services.auth import initialize_auth_store
@@ -40,54 +38,10 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize TritonService: {e}")
         app.state.triton_service = None
     
-    logger.info("Initializing ASR microservice...")
-    
-    # Initialize services
-    app.state.asr_service = NeMoASRService(
-        model_name=settings.model_name,
-        device=settings.device,
-        batch_size=settings.batch_size,
-        max_chunk_duration=settings.max_chunk_duration,
-        min_audio_duration=settings.min_audio_duration,
-        overlap_duration=settings.overlap_duration,
-        target_sample_rate=settings.target_sample_rate,
-        words_per_second=settings.words_per_second,
-        overlap_similarity_threshold=settings.overlap_similarity_threshold
-    )
-    
-    # Initialize Redis-based batch processor
-    redis_settings = get_redis_settings()
-    batch_config = BatchProcessorConfig(
-        redis_host=redis_settings.host,
-        redis_port=redis_settings.port,
-        redis_db=redis_settings.db,
-        redis_password=redis_settings.password,
-        batch_size=redis_settings.batch_size,
-        num_workers=redis_settings.num_workers,
-        max_chunk_duration=settings.max_chunk_duration,
-        overlap_duration=settings.overlap_duration,
-        audio_cache_size=redis_settings.audio_cache_size
-    )
-
-    app.state.batch_processor = BatchProcessor(
-        asr_service=app.state.asr_service,
-        db=app.state.db,
-        triton_service=app.state.triton_service,
-        config=batch_config
-    )
-    
-    # Start batch processor
-    await app.state.batch_processor.start()
-
-    logger.info("ASR microservice initialized successfully")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down ASR microservice...")
-
-    if app.state.batch_processor:
-        await app.state.batch_processor.stop()
         
     if hasattr(app.state, "triton_service"):
         app.state.triton_service = None
@@ -97,7 +51,7 @@ async def lifespan(app: FastAPI):
     await prisma.disconnect()
     logger.info("Database disconnected ✅")
     
-    logger.info("ASR microservice shutdown complete")
+    logger.info("Microservice shutdown complete")
 
 # Create FastAPI app
 app = FastAPI(

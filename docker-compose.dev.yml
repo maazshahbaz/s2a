@@ -1,23 +1,6 @@
 version: "3.9"
 
 services:
-  # Redis (same as prod, since it's lightweight and needed for chunk queue)
-  redis-dev:
-    image: redis:7-alpine
-    container_name: s2a-redis-dev
-    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis-data-dev:/data
-    networks:
-      - s2a-network-dev
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # PostgreSQL Database
   db-dev:
@@ -97,8 +80,6 @@ services:
     command: >
       sh -c " prisma generate && (prisma migrate deploy || (echo 'Applying baseline...' && prisma migrate resolve --applied $$(ls prisma/migrations | head -1) && prisma migrate deploy)) && prisma py fetch && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001 "
     depends_on:
-      redis-dev:
-        condition: service_healthy
       db-dev:
         condition: service_healthy
     restart: unless-stopped
@@ -145,8 +126,6 @@ networks:
     driver: bridge
 
 volumes:
-  redis-data-dev:
-    driver: local
   postgres-data-dev:
     driver: local
   huggingface-cache-dev:
