@@ -20,6 +20,10 @@
     "csr_scoring": {
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
+    },
+    "fraud_detection": {
+      "url": "host.docker.internal:3701",
+      "model_name": "mistral-nemo"
     }
   }
 }

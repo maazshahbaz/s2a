@@ -10,6 +10,7 @@ from .transcription_client import AsyncTranscriptionService
 from .diarization_client import AsyncDiarizationClient
 from .analysis_client import AsyncAnalysis
 from .scoring_client import AsyncCSRScoringClient
+from .fraud_client import AsyncFraudDetectionClient
 from .transcript_merger import TranscriptMerger
 
 
@@ -27,23 +28,26 @@ class Pipeline:
     4. Run AI analysis and CSR agent scoring in parallel
     """
     
-    def __init__(self, 
+    def __init__(self,
         diarization_url: str = None,
         transcription_url: str = None,
-        csr_scoring_url: str = None):
+        csr_scoring_url: str = None,
+        fraud_detection_url: str = None):
         """
         Initialize pipeline with service URLs from config or provided values.
-        
+
         Args:
             diarization_url: Override diarization service URL (default: from config)
             transcription_url: Override transcription service URL (default: from config)
             csr_scoring_url: Override CSR scoring service URL (default: from config)
+            fraud_detection_url: Override fraud detection service URL (default: from config)
         """
         # Load service configurations
         diar_config = config.get_service_config('diarization')
         trans_config = config.get_service_config('transcription')
         scoring_config = config.get_service_config('csr_scoring')
-        
+        fraud_config = config.get_service_config('fraud_detection')
+
         self.chunking = AudioChunking()
         self.transcription = AsyncTranscriptionService(
             url=transcription_url or trans_config.get('url')
@@ -54,6 +58,9 @@ class Pipeline:
         self.analysis = AsyncAnalysis()
         self.csr_scoring = AsyncCSRScoringClient(
             url=csr_scoring_url or scoring_config.get('url')
+        )
+        self.fraud_detection = AsyncFraudDetectionClient(
+            url=fraud_detection_url or fraud_config.get('url')
         )
         self.merger = TranscriptMerger()
     
@@ -141,29 +148,34 @@ class Pipeline:
         request_id: str
     ) -> Dict:
         """
-        Run AI analysis and CSR agent scoring in parallel.
-        
+        Run AI analysis, CSR agent scoring, and fraud detection in parallel.
+
         Args:
             labeled_transcription: The labeled transcript text
             request_id: Unique request identifier
-            
+
         Returns:
-            Analysis dict with 'agent_scoring' field embedded
+            Analysis dict with 'agent_scoring' and 'fraud_detection' fields embedded
         """
         await self.csr_scoring.connect()
-        
-        # Run both in parallel
+
+        # Run all three in parallel
         analysis_task = self.analysis.analyze_call_async(labeled_transcription, request_id)
         scoring_task = self.csr_scoring.score_transcript(
             transcript=labeled_transcription,
             request_id=f"{request_id}"
         )
-        
-        analysis_result, scoring_result = await asyncio.gather(
-            analysis_task,
-            scoring_task
+        fraud_task = self.fraud_detection.detect_fraud(
+            transcript=labeled_transcription,
+            request_id=f"{request_id}_fraud"
         )
-        
+
+        analysis_result, scoring_result, fraud_result = await asyncio.gather(
+            analysis_task,
+            scoring_task,
+            fraud_task
+        )
+
         # Parse analysis_result if it's a JSON string
         if isinstance(analysis_result, str):
             try:
@@ -171,16 +183,30 @@ class Pipeline:
             except json.JSONDecodeError:
                 print(f"[Pipeline] Failed to parse analysis result as JSON")
                 analysis_result = {"error": "Failed to parse analysis", "raw": analysis_result}
-        
+
         # Extract agent_scoring from nested structure if present
         if isinstance(scoring_result, dict) and 'agent_scoring' in scoring_result:
             agent_scoring = scoring_result['agent_scoring']
         else:
             agent_scoring = scoring_result
-        
+
+        # Extract fraud_detection from nested structure if present
+        if isinstance(fraud_result, dict) and 'fraud_detection' in fraud_result:
+            fraud_detection = fraud_result['fraud_detection']
+        else:
+            fraud_detection = fraud_result
+
         # Add agent_scoring to the analysis result
         analysis_result['agent_scoring'] = agent_scoring
-        
+
+        # Merge fraud_detection into ai_analysis for backward compatibility
+        if 'analysis' in analysis_result and 'ai_analysis' in analysis_result.get('analysis', {}):
+            analysis_result['analysis']['ai_analysis']['fraud_detection'] = fraud_detection
+        elif 'ai_analysis' in analysis_result:
+            analysis_result['ai_analysis']['fraud_detection'] = fraud_detection
+        else:
+            analysis_result['fraud_detection'] = fraud_detection
+
         return analysis_result
     
     async def run_pipeline(
@@ -247,6 +273,7 @@ class Pipeline:
         # Close connections
         await self.diarization.close()
         await self.csr_scoring.close()
+        await self.fraud_detection.close()
         
         # Prepare metadata
         metadata = {
