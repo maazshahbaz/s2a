@@ -435,8 +435,6 @@ class TranscriptMerger:
                 sample_size=30
             )
             
-            print(labeled_transcription)
-            
             # Log results
             if analysis_result.get('has_ivr', False):
                 print("[Merger] LLM detected IVR in transcript")
