@@ -6,7 +6,6 @@ import re
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .config_loader import config
-from .fraud_client import FraudDetection
 
 
 # Pydantic Models for validation and cleaning
@@ -225,7 +224,6 @@ class AIAnalysis(BaseModel):
     call_status: CallStatus = Field(default_factory=CallStatus)
     recording_consent: RecordingConsent = Field(default_factory=RecordingConsent)
     extracted_items: ExtractedItems = Field(default_factory=ExtractedItems)
-    fraud_detection: FraudDetection = Field(default_factory=FraudDetection)
     # Optional fields that may appear in extended outputs
     business_intelligence: Optional[BusinessIntelligence] = None
     improvement_recommendations: List[ImprovementRecommendation] = Field(default_factory=list)
