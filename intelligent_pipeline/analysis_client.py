@@ -217,212 +217,6 @@ class ExtractedItems(BaseModel):
         return v
 
 
-class FraudDetection(BaseModel):
-    """
-    Enhanced fraud detection schema for post-call transcript analysis.
-    Detects content-based fraud signals including impersonation, social engineering,
-    phishing, and policy violations through transcript analysis.
-    """
-
-    # ===== OVERALL FRAUD ASSESSMENT =====
-    fraud_detected: bool = False
-    risk_level: Literal["Low", "Medium", "High"] = "Low"
-    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Confidence in fraud assessment (0-1)")
-    fraud_category: Optional[Literal[
-        "impersonation",
-        "social_engineering",
-        "financial_fraud",
-        "identity_phishing",
-        "policy_violation",
-        "none"
-    ]] = "none"
-
-    # ===== IMPERSONATION DETECTION =====
-    impersonation_detected: bool = False
-    impersonation_type: Optional[Literal[
-        "authority_figure",  # IRS, police, government official
-        "company_representative",  # Bank, IT support, customer service
-        "known_contact",  # Friend, family member
-        "none"
-    ]] = "none"
-
-    # ===== SOCIAL ENGINEERING TACTICS =====
-    urgency_tactics: bool = False  # Time pressure, immediate action required
-    fear_tactics: bool = False  # Threats, consequences, legal action
-    authority_tactics: bool = False  # Claims of authority or official capacity
-    scarcity_tactics: bool = False  # Limited time offers, last chance
-
-    # ===== FINANCIAL FRAUD =====
-    payment_request_detected: bool = False
-    payment_method: Optional[Literal[
-        "credit_card",
-        "wire_transfer",
-        "gift_card",
-        "cryptocurrency",
-        "cash",
-        "bank_transfer",
-        "none"
-    ]] = "none"
-
-    # ===== IDENTITY PHISHING =====
-    identity_verification_request: bool = False
-    sensitive_info_requested: List[str] = Field(default_factory=lambda: ["none"])
-
-    # ===== HIGH-PRESSURE TACTICS =====
-    high_pressure_tactics: bool = False
-    emotional_manipulation: bool = False
-    repeated_demands: bool = False
-
-    # ===== POLICY VIOLATIONS =====
-    policy_violation_detected: bool = False
-    violation_type: Optional[Literal[
-        "threats",
-        "harassment",
-        "inappropriate_language",
-        "coercion",
-        "discrimination",
-        "none"
-    ]] = "none"
-
-    # ===== CONVERSATION FLOW ANOMALIES =====
-    abrupt_call_ending: bool = False
-    scripted_responses_detected: bool = False
-    evasive_behavior: bool = False
-    inconsistent_information: bool = False
-
-    # ===== EVIDENCE & REASONING =====
-    evidence: List[str] = Field(default_factory=list, description="Specific phrases or patterns indicating fraud")
-    reasoning: str = Field(default="", description="Detailed explanation of fraud assessment")
-    red_flags: List[str] = Field(default_factory=list, description="List of red flags identified")
-
-    # ===== GRACEFUL FALLBACK =====
-    data_sufficient: bool = True
-    fallback_reason: Optional[str] = None
-
-    # ===== LEGACY FIELDS (for backward compatibility) =====
-    suspicious_language: bool = False
-    potential_fraud: Optional[bool] = None
-    reason: Optional[str] = None
-
-    # ===== VALIDATORS =====
-
-    @field_validator('confidence_score', mode='before')
-    @classmethod
-    def validate_confidence(cls, v):
-        """Ensure confidence score is between 0 and 1"""
-        try:
-            score = float(v)
-            return max(0.0, min(1.0, score))
-        except (ValueError, TypeError):
-            return 0.0
-
-    @field_validator('risk_level', mode='before')
-    @classmethod
-    def normalize_risk_level(cls, v):
-        """Normalize risk level to Low/Medium/High"""
-        if not v:
-            return "Low"
-        v_str = str(v).lower()
-        if "high" in v_str or "critical" in v_str or "severe" in v_str:
-            return "High"
-        elif "medium" in v_str or "moderate" in v_str or "elevated" in v_str:
-            return "Medium"
-        else:
-            return "Low"
-
-    @field_validator('evidence', 'red_flags', mode='before')
-    @classmethod
-    def clean_string_lists(cls, v):
-        """Clean and deduplicate string lists"""
-        if not isinstance(v, list):
-            return []
-        cleaned = [str(item).strip() for item in v if item and str(item).strip()]
-        return list(dict.fromkeys(cleaned))  # Preserve order while deduplicating
-
-    @field_validator('sensitive_info_requested', mode='before')
-    @classmethod
-    def clean_sensitive_info(cls, v):
-        """Clean sensitive info list and ensure 'none' if empty"""
-        if not isinstance(v, list):
-            return ["none"]
-        cleaned = [str(item).strip().lower() for item in v if item and str(item).strip()]
-        return cleaned if cleaned else ["none"]
-
-    @field_validator('fraud_category', 'impersonation_type', 'payment_method', 'violation_type', mode='before')
-    @classmethod
-    def normalize_category_fields(cls, v):
-        """Normalize category fields to lowercase"""
-        if not v or str(v).lower() in ['null', 'none', 'n/a']:
-            return "none"
-        return str(v).lower().replace(" ", "_")
-
-    @model_validator(mode='after')
-    def sync_fields_and_validate(self):
-        """
-        Synchronize legacy fields, validate fraud detection logic, and implement graceful fallback
-        """
-        # Sync legacy fields with new fields
-        if self.fraud_detected and not self.suspicious_language:
-            self.suspicious_language = self.fraud_detected
-
-        if self.potential_fraud is not None and not self.fraud_detected:
-            self.fraud_detected = self.potential_fraud
-
-        if self.reasoning and not self.reason:
-            self.reason = self.reasoning
-        elif self.reason and not self.reasoning:
-            self.reasoning = self.reason
-
-        # If any specific fraud indicator is True, fraud_detected should be True
-        fraud_indicators = [
-            self.impersonation_detected,
-            self.urgency_tactics,
-            self.fear_tactics,
-            self.payment_request_detected,
-            self.identity_verification_request,
-            self.policy_violation_detected,
-        ]
-
-        if any(fraud_indicators) and not self.fraud_detected:
-            self.fraud_detected = True
-
-        # Auto-categorize fraud if not set
-        if self.fraud_detected and self.fraud_category == "none":
-            if self.impersonation_detected:
-                self.fraud_category = "impersonation"
-            elif self.payment_request_detected:
-                self.fraud_category = "financial_fraud"
-            elif self.identity_verification_request:
-                self.fraud_category = "identity_phishing"
-            elif self.policy_violation_detected:
-                self.fraud_category = "policy_violation"
-            elif any([self.urgency_tactics, self.fear_tactics, self.authority_tactics]):
-                self.fraud_category = "social_engineering"
-
-        # Auto-adjust risk level based on fraud category
-        if self.fraud_category in ["impersonation", "financial_fraud", "identity_phishing"]:
-            if self.risk_level == "Low":
-                self.risk_level = "Medium"
-
-        if self.policy_violation_detected and self.violation_type in ["threats", "coercion"]:
-            if self.risk_level != "High":
-                self.risk_level = "High"
-
-        # Graceful fallback: if confidence is very low, set fallback
-        if self.confidence_score < 0.3 and not self.fallback_reason:
-            self.fallback_reason = "Low confidence in fraud assessment due to insufficient indicators"
-            self.data_sufficient = False
-
-        # If data is insufficient and no strong indicators, reset to safe defaults
-        if not self.data_sufficient and not any(fraud_indicators):
-            self.fraud_detected = False
-            self.risk_level = "Low"
-            if not self.fallback_reason:
-                self.fallback_reason = "Insufficient data for confident fraud assessment"
-
-        return self
-
-
 class AIAnalysis(BaseModel):
     call_type: CallType = Field(default_factory=CallType)
     sentiment: Sentiment = Field(default_factory=Sentiment)
@@ -430,7 +224,6 @@ class AIAnalysis(BaseModel):
     call_status: CallStatus = Field(default_factory=CallStatus)
     recording_consent: RecordingConsent = Field(default_factory=RecordingConsent)
     extracted_items: ExtractedItems = Field(default_factory=ExtractedItems)
-    fraud_detection: FraudDetection = Field(default_factory=FraudDetection)
     # Optional fields that may appear in extended outputs
     business_intelligence: Optional[BusinessIntelligence] = None
     improvement_recommendations: List[ImprovementRecommendation] = Field(default_factory=list)
@@ -479,7 +272,6 @@ class AsyncAnalysis:
         self.model_name = service_config.get('model_name', 'mistral-nemo')
         self.client = None
         self.system_prompt = """You are an expert AI system specializing in call center analytics with advanced capabilities in:
-- Fraud detection and risk assessment
 - Sentiment analysis with confidence scoring (Very Positive, Positive, Neutral, Negative, Very Negative, No Sentiment)
 - Entity and information extraction
 - Business intelligence and opportunity identification
@@ -739,66 +531,11 @@ Your responses must be precise, structured JSON that captures both high-level in
         Args:
             transcription: RAW transcription text WITHOUT speaker labels
         """
-        user_prompt = f"""You are an expert AI system specializing in call center analytics, fraud detection, Action Items and business intelligence extraction.
+        user_prompt = f"""You are an expert AI system specializing in call center analytics, Action Items and business intelligence extraction.
 Analyze the following call transcription and provide a comprehensive structured analysis.
 
 Call Transcription:
 {transcription}
-
-=== FRAUD DETECTION GUIDELINES ===
-
-Carefully analyze the transcript for fraud indicators. Look for these specific patterns:
-
-1. IMPERSONATION:
-   - Authority Figures: Claims to be IRS, police, government official, FBI, DEA, court
-   - Company Representatives: Fake bank, IT support, tech support, utility company, insurance
-   - Known Contacts: Pretending to be family, friend, colleague
-   Examples: "This is the IRS", "I'm from Microsoft", "calling from your bank's fraud department"
-
-2. SOCIAL ENGINEERING TACTICS:
-   - Urgency: "Act immediately", "within 24 hours", "deadline today", "right now"
-   - Fear: "Legal action", "arrest warrant", "account frozen", "service disconnection"
-   - Authority: "Final notice", "mandatory", "required by law", "official investigation"
-   - Scarcity: "Limited time", "one-time offer", "last chance", "expires soon"
-
-3. FINANCIAL FRAUD:
-   - Payment Requests: Credit card numbers, wire transfers, gift cards, cryptocurrency
-   - Immediate Payment: "Pay now", "send payment", "transfer funds", "purchase gift cards"
-   - Unusual Methods: iTunes/Google Play cards, Bitcoin, Western Union, untraceable methods
-   Examples: "Pay with gift cards", "wire the money", "give me your card number"
-
-4. IDENTITY PHISHING:
-   - Sensitive Information: SSN, passwords, PINs, verification codes, security questions
-   - Account Credentials: Username, password, account numbers, routing numbers
-   - Personal Data: Date of birth, mother's maiden name, full SSN
-   Examples: "Verify your identity with your SSN", "what's your password", "provide verification code"
-
-5. HIGH-PRESSURE TACTICS:
-   - Emotional Manipulation: Creating panic, urgency, fear, guilt
-   - Repeated Demands: Asking multiple times for same information
-   - Preventing Verification: "Don't hang up", "don't tell anyone", "do it now"
-
-6. POLICY VIOLATIONS:
-   - Threats: Physical harm, legal consequences, reputation damage
-   - Harassment: Aggressive language, insults, intimidation
-   - Coercion: Forcing actions against will, preventing informed decisions
-
-7. CONVERSATION ANOMALIES:
-   - Abrupt Ending: Call ends suddenly after sensitive request
-   - Scripted Responses: Robotic, repetitive, ignoring questions
-   - Evasiveness: Avoiding direct answers, deflecting questions
-   - Inconsistencies: Conflicting information, changing story
-
-CONFIDENCE SCORING:
-- High confidence (0.8-1.0): Multiple clear fraud indicators present
-- Medium confidence (0.5-0.79): Some fraud indicators but could be legitimate
-- Low confidence (0.0-0.49): Insufficient evidence or unclear context
-
-GRACEFUL FALLBACK:
-- If transcript is too short (<50 words), set data_sufficient=false
-- If unclear or ambiguous, set confidence_score low and explain in fallback_reason
-- When in doubt, err on the side of caution with Medium risk rather than High
-- Never flag legitimate business conversations as fraud
 
 Provide a detailed analysis following this EXACT JSON structure. Be thorough and specific:
 {{
@@ -844,55 +581,6 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
                 "email": "email address or null",
                 "name": "person's name or null"
             }}
-        }},
-        "fraud_detection": {{
-            // Overall Assessment
-            "fraud_detected": true/false,
-            "risk_level": "Low|Medium|High",
-            "confidence_score": 0.0-1.0,
-            "fraud_category": "impersonation|social_engineering|financial_fraud|identity_phishing|policy_violation|none",
-
-            // Impersonation Detection
-            "impersonation_detected": true/false,
-            "impersonation_type": "authority_figure|company_representative|known_contact|none",
-
-            // Social Engineering Tactics
-            "urgency_tactics": true/false,
-            "fear_tactics": true/false,
-            "authority_tactics": true/false,
-            "scarcity_tactics": true/false,
-
-            // Financial Fraud
-            "payment_request_detected": true/false,
-            "payment_method": "credit_card|wire_transfer|gift_card|cryptocurrency|cash|bank_transfer|none",
-
-            // Identity Phishing
-            "identity_verification_request": true/false,
-            "sensitive_info_requested": ["ssn", "password", "pin", "verification_code", "security_question", "account_number", "credit_card", "date_of_birth"] or ["none"],
-
-            // High-Pressure Tactics
-            "high_pressure_tactics": true/false,
-            "emotional_manipulation": true/false,
-            "repeated_demands": true/false,
-
-            // Policy Violations
-            "policy_violation_detected": true/false,
-            "violation_type": "threats|harassment|inappropriate_language|coercion|discrimination|none",
-
-            // Conversation Anomalies
-            "abrupt_call_ending": true/false,
-            "scripted_responses_detected": true/false,
-            "evasive_behavior": true/false,
-            "inconsistent_information": true/false,
-
-            // Evidence & Reasoning
-            "evidence": ["specific phrases or patterns indicating fraud"],
-            "reasoning": "detailed explanation of fraud assessment",
-            "red_flags": ["list of specific red flags identified"],
-
-            // Graceful Fallback
-            "data_sufficient": true/false,
-            "fallback_reason": "explanation if confidence is low or data insufficient"
         }}
     }}
 
