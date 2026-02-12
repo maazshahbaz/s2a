@@ -35,7 +35,7 @@ dynamic_batching {
 parameters: {
   key: "max_tokens"
   value: {
-    string_value: "512"
+    string_value: "1024"
   }
 }
 

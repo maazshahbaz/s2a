@@ -89,25 +89,21 @@ class AsyncTaskGenerationClient:
         self.url = url or service_config.get('url', 'localhost:3801')
         self.model_name = service_config.get('model_name', 'qwen-task-gen')
         self.client = None
-        self.system_prompt = """You are an expert call center task generation system. You analyze action items extracted from customer service calls along with call metadata to create structured, actionable tasks for agents.
+        self.system_prompt = """You are a call center task generation system. You convert action items from customer service calls into structured JSON tasks.
 
-Your job is to:
-1. Take each action item from the call analysis and determine if it requires a follow-up task
-2. Use the call metadata (call time, agent ID, caller ID, etc.) to calculate realistic due dates
-3. Classify each task by type: callback, follow_up, escalation, documentation, or other
-4. Assign appropriate priority based on urgency cues in the action item
-5. Estimate due dates based on time references mentioned (e.g., "in 3 days", "next week", "tomorrow", "end of month")
+RULES:
+1. Every action item that mentions an action (call back, send, follow up, escalate, update, submit, schedule) MUST become a task. When in doubt, create the task.
+2. "escalate" or "supervisor" → task_type: "escalation", priority: "high" or "urgent"
+3. "call back" or "callback" → task_type: "callback"
+4. Any other follow-up action → task_type: "follow_up"
+5. Sending documents or updating records → task_type: "documentation"
+6. If no time reference is mentioned, default due_date_relative to "1 business day"
+7. Calculate due_date_estimated as ISO date from calldate + due_date_relative
+8. EVERY task MUST include a "confidence" field (float 0.0-1.0). Never omit it.
+9. Only return data_sufficient=false if action items are truly empty or say "no action required"
+10. Even with minimal metadata, still create tasks — missing metadata is not a reason to skip tasks
 
-IMPORTANT RULES:
-- Only create tasks for items that require agent action
-- Be specific in task descriptions — include WHO, WHAT, and WHEN
-- If a customer says "call me back in 3 days", task_type must be "callback"
-- If no specific time is mentioned, default to 24-48 hours for follow-ups
-- due_date_relative should be human-readable (e.g., "3 days", "1 week", "next business day")
-- due_date_estimated should be an ISO date string calculated from the call_time + relative offset
-- If action items are empty or non-actionable, return an empty tasks array with data_sufficient=false
-
-Your responses must be precise, structured JSON."""
+Return ONLY valid JSON. No extra text."""
 
     async def connect(self):
         """Connect to Triton server"""
