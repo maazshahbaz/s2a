@@ -9,10 +9,10 @@ from db_services.auth import PrismaAPIKeyStore
 from db_services.user import UserService
 from intelligent_pipeline.pipeline import Pipeline
 
-async def run_async_pipeline(audio_path: str, request_id: str, callback = None):
+async def run_async_pipeline(audio_path: str, request_id: str, callback = None, call_metadata: dict = None):
     """Convenience function to run the pipeline synchronously (e.g. for scripts)"""
     pipeline = Pipeline()
-    raw_transcription, labeled_transcription, analysis, metadata = await pipeline.run_pipeline(audio_path, request_id)
+    raw_transcription, labeled_transcription, analysis, metadata = await pipeline.run_pipeline(audio_path, request_id, call_metadata)
     if callback:
         callback(raw_transcription, labeled_transcription, analysis, metadata)
 
@@ -26,7 +26,8 @@ async def process_audio_background_db(
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
     api_key: str = None,
-    transcription_svc = None
+    transcription_svc = None,
+    call_metadata: dict = None
 ):
     """Background task for async audio processing with database integration"""
     from datetime import datetime, timezone
@@ -80,7 +81,8 @@ async def process_audio_background_db(
                     job_id=job_id,
                     transcription=raw_trans,
                     ai_analysis=intelligence_result.get("analysis"),
-                    diarized_transcription=labeled_trans
+                    diarized_transcription=labeled_trans,
+                    agent_tasks=intelligence_result.get("agent_tasks")
                 )
                 await webhook_sender.send_webhook(callback_url, webhook_payload)
 
@@ -91,7 +93,7 @@ async def process_audio_background_db(
         # Run pipeline in a separate thread to avoid blocking main loop
         # run_async_pipeline is synchronous and uses asyncio.run() internally
 
-        await run_async_pipeline(audio_path, job_id, pipeline_callback)
+        await run_async_pipeline(audio_path, job_id, pipeline_callback, call_metadata)
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {e}")
         

@@ -1,0 +1,32 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+# Install HuggingFace transformers dependencies for Qwen (8-bit quantization)
+RUN pip install --no-cache-dir transformers accelerate flash-attn bitsandbytes
+
+# Pre-download Qwen model during build so startup is instant
+RUN python -c "from transformers import AutoTokenizer, AutoModelForCausalLM; \
+    AutoTokenizer.from_pretrained('Qwen/Qwen2.5-1.5B-Instruct', trust_remote_code=True); \
+    AutoModelForCausalLM.from_pretrained('Qwen/Qwen2.5-1.5B-Instruct', trust_remote_code=True)"
+
+# Expose ports
+EXPOSE 3800 3801 3802
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=3800", \
+     "--grpc-port=3801", \
+     "--metrics-port=3802", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]
