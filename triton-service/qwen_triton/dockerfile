@@ -5,7 +5,7 @@ FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
 RUN pip install --no-cache-dir transformers accelerate flash-attn bitsandbytes
 
 # Pre-download Qwen model during build so startup is instant
-RUN python -c "from transformers import AutoTokenizer, AutoModelForCausalLM; \
+RUN python3 -c "from transformers import AutoTokenizer, AutoModelForCausalLM; \
     AutoTokenizer.from_pretrained('Qwen/Qwen2.5-1.5B-Instruct', trust_remote_code=True); \
     AutoModelForCausalLM.from_pretrained('Qwen/Qwen2.5-1.5B-Instruct', trust_remote_code=True)"
 
