@@ -12,6 +12,7 @@ from .analysis_client import AsyncAnalysis
 from .scoring_client import AsyncCSRScoringClient
 from .fraud_client import AsyncFraudDetectionClient
 from .email_client import AsyncFollowUpEmailClient
+from .task_generation_client import AsyncTaskGenerationClient
 from .transcript_merger import TranscriptMerger
 
 
@@ -33,7 +34,8 @@ class Pipeline:
         diarization_url: str = None,
         transcription_url: str = None,
         csr_scoring_url: str = None,
-        fraud_detection_url: str = None):
+        fraud_detection_url: str = None,
+        task_generation_url: str = None):
         """
         Initialize pipeline with service URLs from config or provided values.
 
@@ -42,12 +44,14 @@ class Pipeline:
             transcription_url: Override transcription service URL (default: from config)
             csr_scoring_url: Override CSR scoring service URL (default: from config)
             fraud_detection_url: Override fraud detection service URL (default: from config)
+            task_generation_url: Override task generation service URL (default: from config)
         """
         # Load service configurations
         diar_config = config.get_service_config('diarization')
         trans_config = config.get_service_config('transcription')
         scoring_config = config.get_service_config('csr_scoring')
         fraud_config = config.get_service_config('fraud_detection')
+        task_gen_config = config.get_service_config('task_generation')
 
         self.chunking = AudioChunking()
         self.transcription = AsyncTranscriptionService(
@@ -62,6 +66,9 @@ class Pipeline:
         )
         self.fraud_detection = AsyncFraudDetectionClient(
             url=fraud_detection_url or fraud_config.get('url')
+        )
+        self.task_generation = AsyncTaskGenerationClient(
+            url=task_generation_url or task_gen_config.get('url')
         )
         self.merger = TranscriptMerger()
     
@@ -146,17 +153,20 @@ class Pipeline:
     async def _run_analysis_and_scoring(
         self,
         labeled_transcription: str,
-        request_id: str
+        request_id: str,
+        call_metadata: Dict = None
     ) -> Dict:
         """
-        Run AI analysis, CSR agent scoring, and fraud detection in parallel.
+        Run AI analysis, CSR agent scoring, fraud detection in parallel,
+        then run task generation sequentially (needs action_items from analysis).
 
         Args:
             labeled_transcription: The labeled transcript text
             request_id: Unique request identifier
+            call_metadata: CDR metadata from Talkloop (optional)
 
         Returns:
-            Analysis dict with 'agent_scoring' and 'fraud_detection' fields embedded
+            Analysis dict with 'agent_scoring', 'fraud_detection', and 'agent_tasks' fields
         """
         await self.csr_scoring.connect()
 
@@ -208,20 +218,61 @@ class Pipeline:
         else:
             analysis_result['fraud_detection'] = fraud_detection
 
+        # Run task generation if call_metadata is provided
+        if call_metadata:
+            try:
+                # Extract action_items and contact_info from analysis result
+                action_items = []
+                contact_info = {}
+
+                ai_analysis = analysis_result.get('analysis', {}).get('ai_analysis', {})
+                if not ai_analysis:
+                    ai_analysis = analysis_result.get('ai_analysis', {})
+
+                extracted_items = ai_analysis.get('extracted_items', {})
+                action_items = extracted_items.get('action_items', [])
+                contact_info = extracted_items.get('contact_info', {})
+
+                print(f"[Pipeline] Task generation: {len(action_items)} action items, metadata keys: {list(call_metadata.keys())}")
+
+                task_result = await self.task_generation.generate_tasks(
+                    action_items=action_items,
+                    call_metadata=call_metadata,
+                    contact_info=contact_info,
+                    request_id=f"{request_id}_tasks"
+                )
+
+                # Extract agent_tasks from result
+                if isinstance(task_result, dict) and 'agent_tasks' in task_result:
+                    analysis_result['agent_tasks'] = task_result['agent_tasks']
+                else:
+                    analysis_result['agent_tasks'] = task_result
+
+            except Exception as e:
+                print(f"[Pipeline] Task generation failed (non-fatal): {e}")
+                analysis_result['agent_tasks'] = {
+                    "tasks": [],
+                    "task_count": 0,
+                    "data_sufficient": False,
+                    "fallback_reason": f"Task generation failed: {str(e)}"
+                }
+
         return analysis_result
     
     async def run_pipeline(
         self,
         audio_path: str,
-        request_id: str
+        request_id: str,
+        call_metadata: Dict = None
     ) -> Tuple[str, str, Dict, Dict]:
         """
         Execute the complete pipeline with global speaker consistency.
-        
+
         Args:
             audio_path: Path to input audio file
             request_id: Unique identifier for this request
-            
+            call_metadata: CDR metadata from Talkloop (optional)
+
         Returns:
             Tuple of (raw_transcription, labeled_transcription, analysis_with_scoring, metadata)
         """
@@ -262,7 +313,8 @@ class Pipeline:
         else:
             analysis_scoring_task = self._run_analysis_and_scoring(
                 labeled_transcription,
-                request_id
+                request_id,
+                call_metadata
             )
             cleanup_task = self._delete_chunks_async(chunk_paths)
             
@@ -292,6 +344,7 @@ class Pipeline:
         await self.diarization.close()
         await self.csr_scoring.close()
         await self.fraud_detection.close()
+        await self.task_generation.close()
         
         # Prepare metadata
         metadata = {

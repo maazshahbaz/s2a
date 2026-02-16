@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Literal
 
 class QuickIntelligence(BaseModel):
     """Quick intelligence results (1-2 seconds)"""
@@ -32,6 +32,18 @@ class TranscriptionResponse(BaseModel):
     # Intelligence fields
     quick_intelligence: Optional[QuickIntelligence] = None
     enhanced_intelligence_status: Optional[EnhancedIntelligenceStatus] = None
+
+class CallMetadata(BaseModel):
+    """Call Detail Record (CDR) metadata from Talkloop."""
+    uniqueId: Optional[str] = None
+    src: Optional[str] = None
+    dst: Optional[str] = None
+    accountId: Optional[str] = None
+    disposition: Optional[str] = None
+    calldate: Optional[str] = None
+    agentExtension: Optional[str] = None
+    direction: Optional[str] = None
+
 
 class TranscribeAsyncResponse(BaseModel):
     job_id: str

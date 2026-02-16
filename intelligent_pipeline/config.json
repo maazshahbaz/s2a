@@ -24,8 +24,13 @@
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
     },
-    "followup_email": {"url": "host.docker.internal:3701",
-    "model_name": "mistral-nemo"
+    "followup_email": {
+      "url": "host.docker.internal:3701",
+       "model_name": "mistral-nemo"
+    },
+    "task_generation": {
+      "url": "host.docker.internal:3801",
+      "model_name": "qwen-task-gen"
     }
   }
 }
