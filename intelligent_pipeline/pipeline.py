@@ -188,6 +188,7 @@ class Pipeline:
             fraud_task
         )
 
+
         # Parse analysis_result if it's a JSON string
         if isinstance(analysis_result, str):
             try:
@@ -208,17 +209,19 @@ class Pipeline:
         else:
             fraud_detection = fraud_result
 
-        # Add agent_scoring to the analysis result
-        analysis_result['agent_scoring'] = agent_scoring
-
         # Merge fraud_detection into ai_analysis for backward compatibility
         if 'analysis' in analysis_result and 'ai_analysis' in analysis_result.get('analysis', {}):
+            analysis_result['analysis']['ai_analysis']['agent_scoring'] = agent_scoring
             analysis_result['analysis']['ai_analysis']['fraud_detection'] = fraud_detection
+        
         elif 'ai_analysis' in analysis_result:
+            analysis_result['ai_analysis']['agent_scoring'] = agent_scoring
             analysis_result['ai_analysis']['fraud_detection'] = fraud_detection
+        
         else:
+            analysis_result['agent_scoring'] = agent_scoring
             analysis_result['fraud_detection'] = fraud_detection
-
+            
         # Run task generation if call_metadata is provided
         if call_metadata:
             try:
