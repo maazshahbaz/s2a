@@ -64,6 +64,7 @@ class Pipeline:
         self.csr_scoring = AsyncCSRScoringClient(
             url=csr_scoring_url or scoring_config.get('url')
         )
+        self.followup_email = AsyncFollowUpEmailClient()
         self.fraud_detection = AsyncFraudDetectionClient(
             url=fraud_detection_url or fraud_config.get('url')
         )
