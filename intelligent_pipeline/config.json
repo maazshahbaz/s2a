@@ -15,8 +15,7 @@
     "speaker_correction": {
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
-    }
-    ,
+    },
     "csr_scoring": {
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
@@ -24,6 +23,10 @@
     "fraud_detection": {
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
+    },
+    "followup_email": {
+      "url": "host.docker.internal:3701",
+       "model_name": "mistral-nemo"
     },
     "task_generation": {
       "url": "host.docker.internal:3801",
