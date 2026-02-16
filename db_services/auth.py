@@ -367,8 +367,29 @@ class BearerTokenAuth(HTTPBearer):
 auth = BearerTokenAuth()
 
 
+def _staging_api_key():
+    """Return a mock APIKey for staging mode (no DB, no auth)."""
+    return APIKey(
+        key_id="staging",
+        key_hash="staging",
+        masked_key="bp-proj-staging",
+        name="staging",
+        userId=0,
+        key_type=APIKeyType.PROJECT,
+        created_at=datetime.now(),
+        is_active=True,
+        permissions=["transcribe", "status", "stats"],
+    )
+
+
 def require_permission(permission: str):
     """Dependency factory for checking permissions"""
+    from config import get_settings
+    if get_settings().staging_mode:
+        async def staging_auth():
+            return _staging_api_key()
+        return staging_auth
+
     def check_permission(key_info: APIKey = Depends(auth)):
         if permission not in key_info.permissions:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Permission '{permission}' required")

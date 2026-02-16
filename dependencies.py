@@ -56,8 +56,8 @@ async def process_audio_background_db(
                     processing_time = (end_time - created_at).total_seconds()
                 
                 # Save result to DB
+                intelligence_result = {}
                 if transcription_svc:
-                    intelligence_result = None
                     if analysis:
                         try:
                             import json

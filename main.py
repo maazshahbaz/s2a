@@ -20,15 +20,19 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.app_start_time = time.time()
 
-    logger.info("Connecting to database...")
-    await prisma.connect()
-    app.state.db = prisma
-    logger.info("Database connected ✅")
-    
-    # Initialize auth store with database connection
-    logger.info("Initializing authentication service...")
-    initialize_auth_store(prisma)
-    logger.info("Authentication service initialized ✅")
+    if not settings.staging_mode:
+        logger.info("Connecting to database...")
+        await prisma.connect()
+        app.state.db = prisma
+        logger.info("Database connected ")
+
+        # Initialize auth store with database connection
+        logger.info("Initializing authentication service...")
+        initialize_auth_store(prisma)
+        logger.info("Authentication service initialized ")
+    else:
+        logger.info("STAGING MODE — skipping database and auth")
+        app.state.db = None
 
     logger.info("Initializing Triton Inference Service...")
 
@@ -45,11 +49,12 @@ async def lifespan(app: FastAPI):
         
     if hasattr(app.state, "triton_service"):
         app.state.triton_service = None
-        logger.info("Triton service released ✅")
+        logger.info("Triton service released ")
     
-    logger.info("Disconnecting database...")
-    await prisma.disconnect()
-    logger.info("Database disconnected ✅")
+    if not settings.staging_mode:
+        logger.info("Disconnecting database...")
+        await prisma.disconnect()
+        logger.info("Database disconnected")
     
     logger.info("Microservice shutdown complete")
 
