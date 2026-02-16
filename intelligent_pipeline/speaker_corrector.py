@@ -54,26 +54,44 @@ Key rule: IVR is ONE-WAY automated announcements. Once a human responds or conve
 
 Label human speakers as Agent or Customer.
 
-CRITICAL IDENTIFICATION RULES:
+The Agent is the person who INITIATED the call or represents the calling company.
+The Customer is the person who RECEIVED the call or works at the company being called.
 
-1. The AGENT is the person who:
-   - Says "I'm calling from [Company]" or "I'm calling you from [Company]"
-   - Says "This is [Name] from [Company]"
-   - Introduces themselves as representing a business
-   - Asks about orders, returns, requests, or issues
-   - Says things like "I'm reaching out to you" or "I'm calling to follow up"
-   - Asks diagnostic questions like "When did you purchase...?", "Can you tell me your name?"
+CRITICAL IDENTIFICATION RULES (in PRIORITY ORDER — earlier rules override later ones):
 
-2. The CUSTOMER is the person who:
-   - Answers the phone with "Hello?" or their name
-   - Says "This is [Name]" WITHOUT mentioning a company
-   - Describes their personal problem or issue
-   - Says things like "I had problems with..." or "The [product] isn't working"
-   - Provides personal information when asked (name, purchase date, etc.)
+### HIGHEST PRIORITY — these ALWAYS identify the AGENT:
+1. Says "I'm with [Company]" or "I'm from [Company]" or "This is [Name] from [Company]"
+2. Says "I'm calling from [Company]" or "I'm calling you from [Company]"
+3. Says "I'm looking to speak with [Name]" or "I'm trying to reach [Name]"
+4. Says "I'm reaching out to you about..." or "I'm calling regarding..."
+5. Explains their PURPOSE for calling ("regarding the phone system", "about retired technology")
 
-EXAMPLE:
-- "This is Kathy. Hello?" → CUSTOMER (answering phone)
-- "Hi Kathy, this is Ron. I'm calling you from SJ Computers" → AGENT (calling from company)
+### HIGHEST PRIORITY — these ALWAYS identify the CUSTOMER:
+1. Answers the phone with a department name: "Building Office", "Billing Office", "Front Desk"
+2. Says "I can take your information and forward it to my manager"
+3. Says "What is this regarding?" or "Is he helping you with something?" (screening/gatekeeping)
+4. Takes a message: "I'll forward this to...", "I'll give this to my manager"
+
+### SECONDARY RULES (only if the above rules don't apply):
+5. The Agent may ask diagnostic questions: "When did you purchase...?", "Do you have an iPhone?"
+6. The Customer may describe their problem: "the monitor isn't working", "I had issues with..."
+7. The Customer may provide personal info when asked by Agent during tech support calls
+
+### IMPORTANT — DO NOT CONFUSE:
+- A RECEPTIONIST asking screening questions ("What's your name?", "Which department?") is the CUSTOMER, not the Agent. Screening questions are NOT diagnostic questions.
+- The person who provides their company name and reason for calling is the AGENT, even if they also provide their personal name/number when asked by the receptionist.
+
+### CALL TYPE PATTERNS:
+
+INBOUND SUPPORT CALL (Agent answers):
+- Agent: "Thanks for calling. How can I help?" → AGENT
+- Customer: "I bought a computer and it's not working" → CUSTOMER
+
+OUTBOUND / COLD CALL (Agent calls in):
+- Receptionist: "Building Office" or "Hello?" → CUSTOMER  
+- Caller: "Hi, I'm looking to speak with Mike. I'm with Talk Loop." → AGENT
+- Receptionist: "What's your name? And a phone number?" → CUSTOMER (taking a message, NOT asking diagnostic questions)
+- Caller: "My name is Cody. 612-355-8393." → AGENT (providing info to receptionist)
 
 IMPORTANT - HANDLING 3+ SPEAKERS:
 Most customer service calls have exactly 2 people: 1 Agent and 1 Customer.
@@ -84,11 +102,6 @@ When you see 3 speakers:
 - If two speakers are both asking questions or both providing service → they are likely the SAME AGENT
 - If two speakers are both describing problems or answering questions → they are likely the SAME CUSTOMER
 - Assign the same role to speakers who appear to be the same person
-
-Example with 3 speakers (diarization error):
-- speaker_0: "Hey, this is Ryan Almost here." → Agent
-- speaker_1: "Um no, sir, you didn't speak to me. Can you tell me your name?" → Agent (same as speaker_0)
-- speaker_2: "Hey, um, I just spoke with you. This is Nick again." → Customer
 
 ## RESPONSE FORMAT
 
@@ -108,7 +121,6 @@ Return ONLY a JSON object:
         return f"[INST] {system_prompt}\n\n{user_prompt} [/INST]"
     
     async def _generate_async(self, prompt: str, request_id: str = None) -> str:
-
         if request_id is None:
             request_id = str(uuid.uuid4())
         
@@ -255,10 +267,12 @@ Return ONLY a JSON object:
 TRANSCRIPT:
 {sample_transcript}
 
-IMPORTANT: To identify Agent vs Customer:
-- The person who says "I'm calling from [Company]" or "calling you from [Company]" is the AGENT
-- The person who answers with just their name or "Hello?" is the CUSTOMER
-- The person describing their problem ("the monitor isn't working", "I had issues") is the CUSTOMER
+IMPORTANT - IDENTIFICATION PRIORITY:
+1. HIGHEST PRIORITY: If someone says "I'm with [Company]", "I'm from [Company]", "calling from [Company]", or "I'm looking to speak with [Name]" → they are ALWAYS the AGENT
+2. HIGHEST PRIORITY: If someone answers with a department name ("Building Office", "Billing Office") or says "I'll forward this to my manager" → they are ALWAYS the CUSTOMER
+3. A receptionist asking "What's your name?" or "What is this about?" is a CUSTOMER doing screening, NOT an Agent asking diagnostic questions
+4. In inbound support calls: the person who says "Thanks for calling, how can I help?" is the AGENT
+5. The person describing their problem ("the monitor isn't working") is the CUSTOMER
 
 Return JSON with:
 - has_ivr: true if there's automated IVR at the START (false if it starts with human conversation)
@@ -335,6 +349,9 @@ Return JSON with:
             if spk not in result['speaker_roles'] or result['speaker_roles'][spk] not in valid_roles:
                 result['speaker_roles'][spk] = 'Agent'
         
+        # FIX: Content-based role validation - detect and correct role swaps
+        result = self._validate_roles_by_content(result, detected_speakers, transcript)
+        
         # Count roles
         agents = [spk for spk in detected_speakers if result['speaker_roles'][spk] in ['Agent', 'Agent_2']]
         customers = [spk for spk in detected_speakers if result['speaker_roles'][spk] == 'Customer']
@@ -371,6 +388,141 @@ Return JSON with:
         for spk in detected_speakers:
             if result['speaker_roles'][spk] == 'Agent_2':
                 result['speaker_roles'][spk] = 'Agent'
+        
+        return result
+    
+    def _validate_roles_by_content(
+        self, 
+        result: Dict, 
+        detected_speakers: List[str], 
+        transcript: str
+    ) -> Dict:
+        """
+        Content-based validation: detect and correct role swaps using contradiction detection.
+        
+        Only swaps roles when BOTH conditions are met:
+        1. The speaker labeled Agent has strong CUSTOMER signals (receptionist/gatekeeping)
+        2. The speaker labeled Customer has strong AGENT signals (company identification)
+        
+        This conservative approach prevents false swaps on ambiguous calls.
+        Works with any number of speakers (2, 3, etc.) by finding the Agent and Customer.
+        """
+        if len(detected_speakers) < 2:
+            return result
+        
+        speaker_roles = result.get('speaker_roles', {})
+        
+        # Build per-speaker text first (needed to identify IVR speaker)
+        import re
+        speaker_text = {spk: [] for spk in detected_speakers}
+        lines = transcript.strip().split('\n')
+        
+        for line in lines:
+            match = re.match(r'\[([^\]]+)\]\s*(.*)', line)
+            if match:
+                spk = match.group(1)
+                text = match.group(2).strip()
+                if spk in speaker_text:
+                    speaker_text[spk].append(text.lower())
+        
+        # Identify and exclude the IVR speaker from role checking
+        # IVR speaker's text contains automated phrases like "thank you for calling", "please wait"
+        ivr_speakers = set()
+        ivr_indicators = ["thank you for calling", "please wait while", "your call may be recorded",
+                          "press 1", "please hold", "home of the"]
+        
+        for spk in detected_speakers:
+            all_text = ' '.join(speaker_text.get(spk, []))
+            # A speaker is IVR if they have IVR phrases AND very few lines (typically 1-2)
+            has_ivr_phrases = any(phrase in all_text for phrase in ivr_indicators)
+            few_lines = len(speaker_text.get(spk, [])) <= 2
+            if has_ivr_phrases and few_lines:
+                ivr_speakers.add(spk)
+                print(f"[Content Validator] Excluding IVR speaker: {spk}")
+        
+        # Find Agent and Customer among non-IVR speakers
+        human_speakers = [spk for spk in detected_speakers if spk not in ivr_speakers]
+        
+        if len(human_speakers) < 2:
+            print(f"[Content Validator] Only {len(human_speakers)} human speaker(s) after IVR exclusion, skipping")
+            return result
+        
+        agent_spk = None
+        customer_spk = None
+        for spk in human_speakers:
+            role = speaker_roles.get(spk, '')
+            if role == 'Agent' and agent_spk is None:
+                agent_spk = spk
+            elif role == 'Customer' and customer_spk is None:
+                customer_spk = spk
+        
+        if not agent_spk or not customer_spk:
+            print(f"[Content Validator] Skipping - need both Agent and Customer "
+                  f"(found agent={agent_spk}, customer={customer_spk})")
+            return result
+        
+        print(f"[Content Validator] Checking roles: {agent_spk}=Agent, {customer_spk}=Customer "
+              f"(total speakers: {len(detected_speakers)})")
+        
+        # Check if assigned Agent has strong CUSTOMER signals
+        agent_text = ' '.join(speaker_text.get(agent_spk, []))
+        agent_has_customer_signals = False
+        
+        customer_receptionist_phrases = [
+            "building office", "billing office", "billing department",
+            "front desk", "reception",
+        ]
+        customer_gatekeeping_phrases = [
+            "i can take your information", "i can get your information",
+            "forward it to my manager", "forward it over to",
+            "i don't have his information", "i don't have access",
+            "i will give this over to my manager",
+            "i'll forward this", "i will get this forwarded",
+        ]
+        
+        for phrase in customer_receptionist_phrases + customer_gatekeeping_phrases:
+            if phrase in agent_text:
+                agent_has_customer_signals = True
+                break
+        
+        # Check if assigned Customer has strong AGENT signals (company identification)
+        customer_text = ' '.join(speaker_text.get(customer_spk, []))
+        customer_has_agent_signals = False
+        
+        agent_company_phrases = [
+            "i'm with ", "i am with ", "i'm from ", "i am from ",
+            "calling from ", "calling you from ",
+            "this is {} from ", "this is {} with ",
+        ]
+        
+        for phrase in agent_company_phrases:
+            if '{}' in phrase:
+                base = phrase.split('{}')[0]
+                if base in customer_text:
+                    customer_has_agent_signals = True
+                    break
+            elif phrase in customer_text:
+                customer_has_agent_signals = True
+                break
+        
+        # Only swap if BOTH contradictions are present
+        if agent_has_customer_signals and customer_has_agent_signals:
+            print(f"[Content Validator] ROLE SWAP DETECTED - contradictions on BOTH sides:")
+            print(f"  '{agent_spk}' labeled Agent but has Customer signals (receptionist/gatekeeping)")
+            print(f"  '{customer_spk}' labeled Customer but has Agent signals (company identification)")
+            print(f"  Swapping: {agent_spk}→Customer, {customer_spk}→Agent")
+            
+            result['speaker_roles'][agent_spk] = 'Customer'
+            result['speaker_roles'][customer_spk] = 'Agent'
+        elif agent_has_customer_signals or customer_has_agent_signals:
+            # Only one side has contradiction — log but don't swap (ambiguous)
+            print(f"[Content Validator] Partial contradiction detected (not swapping):")
+            if agent_has_customer_signals:
+                print(f"  '{agent_spk}' (Agent) has some Customer-like signals")
+            if customer_has_agent_signals:
+                print(f"  '{customer_spk}' (Customer) has some Agent-like signals")
+        else:
+            print(f"[Content Validator] No contradictions - roles confirmed")
         
         return result
     

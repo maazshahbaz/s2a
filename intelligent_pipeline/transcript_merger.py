@@ -9,6 +9,8 @@ class TranscriptMerger:
     Uses LLM to:
     1. Detect IVR/automated system messages
     2. Assign Agent/Customer labels to human speakers
+    
+    All done in a single LLM call for efficiency.
     """
     
     def __init__(self, triton_url: str = None):
@@ -53,6 +55,283 @@ class TranscriptMerger:
                 if old_speaker != new_word['speaker']:
                     new_word['original_diar_speaker'] = old_speaker
             result.append(new_word)
+        
+        return result
+    
+    # ==================== SINGLE-SPEAKER FALLBACK ====================
+    # FIX: Detect and handle single-speaker diarization output
+    
+    @staticmethod
+    def _detect_single_speaker(aligned_words: List[Dict]) -> bool:
+        """Check if all words are assigned to a single speaker."""
+        if not aligned_words:
+            return False
+        speakers = set(w['speaker'] for w in aligned_words if w['speaker'] != 'IVR')
+        return len(speakers) <= 1
+    
+    @staticmethod
+    def _apply_silence_based_speaker_splitting(
+        aligned_words: List[Dict],
+        min_gap_for_turn: float = 0.8,
+        min_segment_words: int = 3
+    ) -> List[Dict]:
+        """
+        FIX for single-speaker output: Split into 2 speakers using silence gaps.
+        
+        When diarization fails to distinguish speakers, use timing gaps between
+        words as indicators of speaker turns. In telephonic conversations, speaker
+        turns typically have a noticeable pause (0.5-2.0 seconds).
+        """
+        if not aligned_words or len(aligned_words) < 5:
+            return aligned_words
+        
+        print("[Fallback] Applying silence-based speaker splitting...")
+        
+        # Step 1: Calculate gaps between consecutive words
+        gaps = []
+        for i in range(1, len(aligned_words)):
+            gap = aligned_words[i]['global_start'] - aligned_words[i-1]['global_end']
+            gaps.append({'index': i, 'gap': gap})
+        
+        if not gaps:
+            return aligned_words
+        
+        # Step 2: Find significant gaps that likely indicate speaker turns
+        gap_values = sorted([g['gap'] for g in gaps if g['gap'] > 0])
+        if not gap_values:
+            return aligned_words
+        
+        median_gap = gap_values[len(gap_values) // 2]
+        adaptive_threshold = max(min_gap_for_turn, median_gap * 3.0)
+        
+        turn_points = [g['index'] for g in gaps if g['gap'] >= adaptive_threshold]
+        
+        # If very few turn points, lower threshold
+        if len(turn_points) < 3 and gap_values:
+            threshold_75 = gap_values[int(len(gap_values) * 0.75)]
+            adaptive_threshold = max(0.3, threshold_75)
+            turn_points = [g['index'] for g in gaps if g['gap'] >= adaptive_threshold]
+        
+        if not turn_points:
+            print("[Fallback] No significant gaps found, cannot split speakers")
+            return aligned_words
+        
+        print(f"[Fallback] Found {len(turn_points)} potential turn points "
+              f"(threshold: {adaptive_threshold:.2f}s)")
+        
+        # Step 3: Create segments between turn points
+        segments = []
+        prev_idx = 0
+        for tp in turn_points:
+            if tp > prev_idx:
+                segments.append((prev_idx, tp))
+            prev_idx = tp
+        if prev_idx < len(aligned_words):
+            segments.append((prev_idx, len(aligned_words)))
+        
+        # Step 4: Merge very short segments into neighbors
+        merged_segments = []
+        for start, end in segments:
+            word_count = end - start
+            if word_count < min_segment_words and merged_segments:
+                prev_start, prev_end = merged_segments[-1]
+                merged_segments[-1] = (prev_start, end)
+            else:
+                merged_segments.append((start, end))
+        
+        # Step 5: Alternate speakers across segments
+        result = [w.copy() for w in aligned_words]
+        current_speaker = 0
+        
+        for i, (seg_start, seg_end) in enumerate(merged_segments):
+            speaker = f"speaker_{current_speaker}"
+            for j in range(seg_start, seg_end):
+                result[j]['speaker'] = speaker
+            if i < len(merged_segments) - 1:
+                current_speaker = 1 - current_speaker
+        
+        final_speakers = set(w['speaker'] for w in result)
+        if len(final_speakers) >= 2:
+            spk_counts = {}
+            for w in result:
+                spk_counts[w['speaker']] = spk_counts.get(w['speaker'], 0) + 1
+            print(f"[Fallback] Successfully split into speakers: {spk_counts}")
+        else:
+            print("[Fallback] Warning: Could not create 2-speaker split")
+        
+        return result
+    
+    # ==================== MISSING TIMESTAMPS HANDLER ====================
+    # FIX: Handle chunks where ASR returns text but no word timestamps
+    
+    @staticmethod
+    def _generate_approximate_words(
+        text: str,
+        chunk_start: float,
+        chunk_end: float,
+        speaker: str = 'speaker_0'
+    ) -> List[Dict]:
+        """
+        Generate approximate word-level entries when ASR returns text but no timestamps.
+        Prevents content from being silently dropped from the labeled transcription.
+        """
+        if not text or not text.strip():
+            return []
+        
+        words = text.strip().split()
+        if not words:
+            return []
+        
+        chunk_duration = chunk_end - chunk_start
+        if chunk_duration <= 0:
+            chunk_duration = len(words) * 0.3
+        
+        word_duration = chunk_duration / len(words)
+        
+        result = []
+        for i, word_text in enumerate(words):
+            word_start = i * word_duration
+            word_end = (i + 1) * word_duration
+            result.append({
+                'text': word_text,
+                'start': word_start,
+                'end': word_end,
+                'global_start': chunk_start + word_start,
+                'global_end': chunk_start + word_end,
+                'speaker': speaker,
+                'approximate_timing': True
+            })
+        
+        print(f"[Merger] Generated approximate timestamps for {len(words)} words "
+              f"(chunk {chunk_start:.1f}s-{chunk_end:.1f}s)")
+        
+        return result
+    
+    # ==================== FIX: Boundary segment cleanup ====================
+    
+    @staticmethod
+    def _fix_boundary_segments(
+        aligned_words: List[Dict],
+        min_words: int = 2,
+        max_duration: float = 0.4
+    ) -> List[Dict]:
+        """
+        FIX: Merge very short segments at the start/end of conversation into
+        the adjacent segment. Handles stray words from diarization noise.
+        """
+        if len(aligned_words) < 3:
+            return aligned_words
+        
+        result = [w.copy() for w in aligned_words]
+        
+        # Find the first speaker change
+        first_speaker = result[0]['speaker']
+        first_change_idx = None
+        for i in range(1, len(result)):
+            if result[i]['speaker'] != first_speaker:
+                first_change_idx = i
+                break
+        
+        if first_change_idx is not None and first_change_idx <= min_words:
+            duration = result[first_change_idx - 1]['global_end'] - result[0]['global_start']
+            if duration < max_duration:
+                new_speaker = result[first_change_idx]['speaker']
+                for j in range(first_change_idx):
+                    result[j]['speaker'] = new_speaker
+                print(f"[Smoother] Merged {first_change_idx} stray word(s) at start "
+                      f"into {new_speaker}")
+        
+        # Same for the end
+        last_speaker = result[-1]['speaker']
+        last_change_idx = None
+        for i in range(len(result) - 2, -1, -1):
+            if result[i]['speaker'] != last_speaker:
+                last_change_idx = i + 1
+                break
+        
+        if last_change_idx is not None and (len(result) - last_change_idx) <= min_words:
+            duration = result[-1]['global_end'] - result[last_change_idx]['global_start']
+            if duration < max_duration:
+                new_speaker = result[last_change_idx - 1]['speaker']
+                for j in range(last_change_idx, len(result)):
+                    result[j]['speaker'] = new_speaker
+                print(f"[Smoother] Merged {len(result) - last_change_idx} stray word(s) at end "
+                      f"into {new_speaker}")
+        
+        return result
+    
+    # ==================== FIX: Anti-fragmentation ====================
+    
+    @staticmethod
+    def _fix_mid_sentence_speaker_changes(
+        aligned_words: List[Dict],
+        min_segment_words: int = 4
+    ) -> List[Dict]:
+        """
+        FIX for over-fragmentation: Prevent speaker changes mid-sentence.
+        
+        Short segments that occur within a continuous sentence are likely diarization
+        errors. Merge them with the surrounding speaker.
+        """
+        if len(aligned_words) < 5:
+            return aligned_words
+        
+        result = [w.copy() for w in aligned_words]
+        sentence_enders = {'.', '?', '!'}
+        
+        # Build segments
+        segments = []
+        current_speaker = None
+        seg_start_idx = 0
+        
+        for i, word in enumerate(result):
+            if word['speaker'] != current_speaker:
+                if current_speaker is not None:
+                    segments.append({
+                        'speaker': current_speaker,
+                        'start_idx': seg_start_idx,
+                        'end_idx': i - 1,
+                        'word_count': i - seg_start_idx
+                    })
+                current_speaker = word['speaker']
+                seg_start_idx = i
+        
+        if current_speaker is not None:
+            segments.append({
+                'speaker': current_speaker,
+                'start_idx': seg_start_idx,
+                'end_idx': len(result) - 1,
+                'word_count': len(result) - seg_start_idx
+            })
+        
+        for i in range(1, len(segments) - 1):
+            seg = segments[i]
+            if seg['speaker'] == 'IVR':
+                continue
+            if seg['word_count'] >= min_segment_words:
+                continue
+            
+            prev_seg = segments[i - 1]
+            next_seg = segments[i + 1]
+            
+            if prev_seg['speaker'] == 'IVR' or next_seg['speaker'] == 'IVR':
+                continue
+            
+            prev_last_word = result[prev_seg['end_idx']]['text']
+            prev_ends_sentence = any(prev_last_word.rstrip().endswith(p) for p in sentence_enders)
+            
+            # If previous didn't end a sentence and this is a short fragment
+            # surrounded by the same speaker — merge
+            if not prev_ends_sentence and prev_seg['speaker'] == next_seg['speaker']:
+                for idx in range(seg['start_idx'], seg['end_idx'] + 1):
+                    result[idx]['speaker'] = prev_seg['speaker']
+                print(f"[Anti-Fragment] Merged {seg['word_count']}-word mid-sentence segment "
+                      f"at word {seg['start_idx']}")
+            elif not prev_ends_sentence and seg['word_count'] <= 2:
+                for idx in range(seg['start_idx'], seg['end_idx'] + 1):
+                    result[idx]['speaker'] = prev_seg['speaker']
+                print(f"[Anti-Fragment] Merged {seg['word_count']}-word fragment "
+                      f"at word {seg['start_idx']}")
         
         return result
     
@@ -210,6 +489,9 @@ class TranscriptMerger:
                 
                 print(f"[Smoother] Fixed rapid speaker change at {seg['start_time']:.2f}s "
                       f"(duration: {duration:.2f}s, {seg['speaker']} → {prev_speaker})")
+        
+        # FIX: Additional pass - merge stray words at conversation boundaries
+        smoothed = TranscriptMerger._fix_boundary_segments(smoothed, min_words=2, max_duration=0.4)
         
         return smoothed
     
@@ -391,12 +673,45 @@ class TranscriptMerger:
                         'global_end': chunk_start + word['end'],
                         'speaker': 'speaker_0'
                     })
+            # FIX: Handle case where text exists but word_timestamps is empty
+            elif text and text.strip():
+                print(f"[Chunk {i}] Warning: Text exists but no word timestamps - "
+                      f"generating approximate timestamps")
+                default_speaker = 'speaker_0'
+                if diarization_segments:
+                    speaker_coverage = {}
+                    for seg in diarization_segments:
+                        spk = seg['speaker']
+                        dur = seg.get('duration', seg['end'] - seg['start'])
+                        speaker_coverage[spk] = speaker_coverage.get(spk, 0) + dur
+                    if speaker_coverage:
+                        default_speaker = max(speaker_coverage, key=speaker_coverage.get)
+                
+                approx_words = self._generate_approximate_words(
+                    text, chunk_start, chunk_end, default_speaker
+                )
+                if approx_words and diarization_segments:
+                    approx_words = self._align_words_with_diarization(
+                        approx_words, diarization_segments, chunk_start
+                    )
+                all_aligned_words.extend(approx_words)
         
         raw_transcription = ' '.join(all_raw_text)
         
         # Step 2: Renumber speakers sequentially
         print("[Merger] Renumbering speakers sequentially...")
         all_aligned_words = self._renumber_speakers_sequentially(all_aligned_words)
+        
+        # FIX: Detect single-speaker alignment and apply fallback
+        if all_aligned_words and self._detect_single_speaker(all_aligned_words):
+            print("[Merger] WARNING: All words assigned to single speaker! "
+                  "Applying silence-based fallback splitting...")
+            all_aligned_words = self._apply_silence_based_speaker_splitting(
+                all_aligned_words,
+                min_gap_for_turn=0.8,
+                min_segment_words=3
+            )
+            all_aligned_words = self._renumber_speakers_sequentially(all_aligned_words)
         
         # Step 3: Apply speaker smoothing (before LLM analysis)
         if all_aligned_words:
@@ -408,6 +723,14 @@ class TranscriptMerger:
                 all_aligned_words, 
                 min_duration=0.5,
                 diarization_speaker_count=current_speaker_count
+            )
+        
+        # FIX: Apply anti-fragmentation pass
+        if all_aligned_words:
+            print("[Merger] Fixing mid-sentence speaker changes...")
+            all_aligned_words = self._fix_mid_sentence_speaker_changes(
+                all_aligned_words,
+                min_segment_words=4
             )
         
         # Step 4: Final renumbering before LLM
@@ -434,7 +757,6 @@ class TranscriptMerger:
                 all_aligned_words,
                 sample_size=30
             )
-            
             # Log results
             if analysis_result.get('has_ivr', False):
                 print("[Merger] LLM detected IVR in transcript")

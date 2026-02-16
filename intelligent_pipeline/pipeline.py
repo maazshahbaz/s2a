@@ -11,6 +11,7 @@ from .diarization_client import AsyncDiarizationClient
 from .analysis_client import AsyncAnalysis
 from .scoring_client import AsyncCSRScoringClient
 from .fraud_client import AsyncFraudDetectionClient
+from .email_client import AsyncFollowUpEmailClient
 from .task_generation_client import AsyncTaskGenerationClient
 from .transcript_merger import TranscriptMerger
 
@@ -321,6 +322,23 @@ class Pipeline:
                 analysis_scoring_task,
                 cleanup_task
             )
+
+            # Step 6: Generate follow-up email
+            followup_result = await self._run_followup_email(
+                labeled_transcription,
+                combined_analysis,
+                request_id
+            )
+            followup_result = followup_result['output']["follow_up_email"]
+            if 'analysis' in combined_analysis and 'ai_analysis' in combined_analysis.get('analysis', {}):
+                combined_analysis['analysis']['ai_analysis']['follow_up_email'] = followup_result
+
+            elif 'ai_analysis' in combined_analysis:
+                combined_analysis['ai_analysis']['follow_up_email'] = followup_result
+
+            else:
+                combined_analysis['follow_up_email'] = followup_result  
+        
         
         # Close connections
         await self.diarization.close()
