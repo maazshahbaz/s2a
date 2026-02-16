@@ -19,6 +19,7 @@ class WebhookPayload:
     transcription: Optional[str] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     diarized_transcription: Optional[str] = None
+    agent_tasks: Optional[Dict[str, Any]] = None
 
 
 class WebhookSender:
@@ -88,7 +89,10 @@ class WebhookSender:
             
         if payload.diarized_transcription:
             webhook_data["diarized_transcription"] = payload.diarized_transcription
-        
+
+        if payload.agent_tasks:
+            webhook_data["agent_tasks"] = payload.agent_tasks
+
         # Send with retries
         last_error = None
         

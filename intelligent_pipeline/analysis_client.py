@@ -134,6 +134,27 @@ class ContactInfo(BaseModel):
             return None
         return str(v).strip()
 
+class RecordingConsent(BaseModel):
+    agent_disclosed_recording: bool = False
+    customer_consented_to_recording: bool = False
+
+    @field_validator(
+        'agent_disclosed_recording',
+        'customer_consented_to_recording',
+        mode='before'
+    )
+    @classmethod
+    def normalize_bool(cls, v):
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return False
+        v_str = str(v).strip().lower()
+        if v_str in {"true", "yes", "y", "1"}:
+            return True
+        if v_str in {"false", "no", "n", "0"}:
+            return False
+        return False
 
 class PersonalInfo(BaseModel):
     type: str
@@ -196,57 +217,13 @@ class ExtractedItems(BaseModel):
         return v
 
 
-class FraudDetection(BaseModel):
-    # Support both formats
-    suspicious_language: bool = False
-    high_pressure_tactics: bool = False
-    potential_fraud: Optional[bool] = None  # Alternative field name
-    risk_level: Literal["Low", "Medium", "High"] = "Low"
-    evidence: List[str] = Field(default_factory=list)
-    reason: Optional[str] = None  # Alternative field name
-    
-    @field_validator('risk_level', mode='before')
-    @classmethod
-    def normalize_risk_level(cls, v):
-        if not v:
-            return "Low"
-        v_str = str(v).lower()
-        if "high" in v_str:
-            return "High"
-        elif "medium" in v_str or "moderate" in v_str:
-            return "Medium"
-        else:
-            return "Low"
-    
-    @field_validator('evidence', mode='before')
-    @classmethod
-    def clean_evidence(cls, v):
-        if not isinstance(v, list):
-            return []
-        # Remove empty strings, strip whitespace, and remove duplicates
-        cleaned = [str(item).strip() for item in v if item and str(item).strip()]
-        return list(set(cleaned))
-    
-    @model_validator(mode='after')
-    def sync_fraud_fields(self):
-        """Synchronize potential_fraud with suspicious_language if one is set"""
-        if self.potential_fraud is not None and not self.suspicious_language:
-            self.suspicious_language = self.potential_fraud
-        
-        # If reason is provided but evidence is empty, add reason to evidence
-        if self.reason and not self.evidence:
-            self.evidence = [self.reason]
-        
-        return self
-
-
 class AIAnalysis(BaseModel):
     call_type: CallType = Field(default_factory=CallType)
     sentiment: Sentiment = Field(default_factory=Sentiment)
     summary: str = "No summary available"
     call_status: CallStatus = Field(default_factory=CallStatus)
+    recording_consent: RecordingConsent = Field(default_factory=RecordingConsent)
     extracted_items: ExtractedItems = Field(default_factory=ExtractedItems)
-    fraud_detection: FraudDetection = Field(default_factory=FraudDetection)
     # Optional fields that may appear in extended outputs
     business_intelligence: Optional[BusinessIntelligence] = None
     improvement_recommendations: List[ImprovementRecommendation] = Field(default_factory=list)
@@ -259,6 +236,18 @@ class AIAnalysis(BaseModel):
         # Remove excessive whitespace
         return " ".join(str(v).split())
 
+    @model_validator(mode="after")
+    def enforce_recording_consent_integrity(self):
+        if self.recording_consent is None:
+            self.recording_consent = RecordingConsent()
+
+        if not isinstance(self.recording_consent.agent_disclosed_recording, bool):
+            self.recording_consent.agent_disclosed_recording = False
+
+        if not isinstance(self.recording_consent.customer_consented_to_recording, bool):
+            self.recording_consent.customer_consented_to_recording = False
+
+        return self
 
 class Analysis(BaseModel):
     ai_analysis: AIAnalysis
@@ -283,7 +272,6 @@ class AsyncAnalysis:
         self.model_name = service_config.get('model_name', 'mistral-nemo')
         self.client = None
         self.system_prompt = """You are an expert AI system specializing in call center analytics with advanced capabilities in:
-- Fraud detection and risk assessment
 - Sentiment analysis with confidence scoring (Very Positive, Positive, Neutral, Negative, Very Negative, No Sentiment)
 - Entity and information extraction
 - Business intelligence and opportunity identification
@@ -522,7 +510,6 @@ Your responses must be precise, structured JSON that captures both high-level in
             outputs=outputs,
             request_id=request_id
         )
-        
         output_text = response.as_numpy("generated_text")[0].decode('utf-8')
         
         if isinstance(output_text, bytes):
@@ -544,10 +531,12 @@ Your responses must be precise, structured JSON that captures both high-level in
         Args:
             transcription: RAW transcription text WITHOUT speaker labels
         """
-        user_prompt = f"""You are an expert AI system specializing in call center analytics, fraud detection, Action Items and business intelligence extraction.
+        user_prompt = f"""You are an expert AI system specializing in call center analytics, Action Items and business intelligence extraction.
 Analyze the following call transcription and provide a comprehensive structured analysis.
+
 Call Transcription:
 {transcription}
+
 Provide a detailed analysis following this EXACT JSON structure. Be thorough and specific:
 {{
     "ai_analysis": {{
@@ -569,6 +558,10 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
             "wrong_number": true/false,
             "callback_requested": true/false
         }},
+        "recording_consent": {{
+            "agent_disclosed_recording": true/false,
+            "customer_consented_to_recording": true/false
+        }},
         "extracted_items": {{
             "products": [
                 {{
@@ -588,17 +581,13 @@ Provide a detailed analysis following this EXACT JSON structure. Be thorough and
                 "email": "email address or null",
                 "name": "person's name or null"
             }}
-        }},
-        "fraud_detection": {{
-            "suspicious_language": true/false,
-            "high_pressure_tactics": true/false,
-            "risk_level": "Low|Medium|High",
-            "evidence": ["specific phrases or patterns that indicate risk"]
         }}
     }}
 
 IMPORTANT:
 - Return ONLY valid JSON with no additional text
+- For recording_consent fields, ambiguity MUST resolve to false.
+- Quantity MUST be an integer or null, never text values
 - Use null for missing values, never omit fields
 - Ensure all boolean values are lowercase (true/false)
 - Keep arrays empty [] if no items found
