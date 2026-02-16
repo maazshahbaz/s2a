@@ -1,8 +1,9 @@
+from typing import Optional
 from fastapi import APIRouter, Response, UploadFile, File, Depends, Request, HTTPException, Form, BackgroundTasks
-from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
 import os
-from api.schemas import  TranscriptionResponse, TranscribeAsyncResponse, StatusResponse
+from api.schemas import TranscriptionResponse, TranscribeAsyncResponse, StatusResponse, CallMetadata
 from dependencies import get_transcription_service
+import json as json_lib
 from db_services.auth import require_permission, update_request_usage, get_rate_limit_headers, APIKey
 from db_services.transcription import store_uploaded_file, delete_audio_file
 import uuid
@@ -25,6 +26,7 @@ async def transcribe_async(
     include_intelligence: bool = True,
     intelligence_mode: str = "auto_detect",
     priority: int = 0,
+    call_metadata: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
     transcription_svc = Depends(get_transcription_service)
@@ -50,6 +52,17 @@ async def transcribe_async(
     
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
+
+    # Parse and validate call metadata if provided
+    parsed_metadata = None
+    if call_metadata:
+        try:
+            metadata_dict = json_lib.loads(call_metadata)
+            parsed_metadata = CallMetadata(**metadata_dict).model_dump()
+        except json_lib.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid call_metadata: must be a valid JSON string.")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid call_metadata: {str(e)}")
     
     # Store uploaded file permanently
     audio_path = await store_uploaded_file(audio_file, job_id)
@@ -92,7 +105,8 @@ async def transcribe_async(
             process_audio_background_db,
             job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
             include_intelligence, intelligence_mode,
-            request.state.api_key, transcription_svc
+            request.state.api_key, transcription_svc,
+            parsed_metadata
         )
         
         return TranscribeAsyncResponse(job_id=job_id, status="accepted")

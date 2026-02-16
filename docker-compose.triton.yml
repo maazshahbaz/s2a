@@ -91,6 +91,34 @@ services:
     networks:
       - triton-network
 
+  qwen-triton-server:
+    build:
+      context: ./triton-service/qwen_triton
+      dockerfile: dockerfile
+    container_name: qwen-triton-server
+    ports:
+      - "3800:3800" # HTTP
+      - "3801:3801" # gRPC
+      - "3802:3802" # Metrics
+    volumes:
+      - ./triton-service/qwen_triton/models:/models
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    shm_size: "32gb"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: unless-stopped
+    networks:
+      - triton-network
+
 networks:
   triton-network:
     driver: bridge
