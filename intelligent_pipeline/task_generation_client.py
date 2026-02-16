@@ -1,6 +1,5 @@
 import json
 import re
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Literal
 import numpy as np
 import tritonclient.grpc.aio as grpcclient_aio
@@ -380,12 +379,10 @@ IMPORTANT:
         agent_extension = call_metadata.get('agentExtension') or None
 
         for task in result.get('tasks', []):
-            if agent_extension:
-                task['assigned_to'] = agent_extension
-            if contact_name:
-                task['name'] = contact_name
-            if contact_phone:
-                task['number'] = contact_phone
+            # Always overwrite these 3 fields — set to real value or None
+            task['assigned_to'] = agent_extension
+            task['name'] = contact_name
+            task['number'] = contact_phone
 
         return {"agent_tasks": result}
 

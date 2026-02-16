@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Optional, List, Any, Literal
+from typing import Dict, Optional, List, Any
 
 class QuickIntelligence(BaseModel):
     """Quick intelligence results (1-2 seconds)"""
