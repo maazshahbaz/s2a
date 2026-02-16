@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import soundfile as sf
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Optional
 from .config_loader import config
 
 from .audio_chunking import AudioChunking
@@ -258,6 +258,43 @@ class Pipeline:
                 }
 
         return analysis_result
+
+    async def _run_followup_email(
+        self,
+        labeled_transcription: str,
+        analysis_result: Optional[Dict],
+        request_id: str
+    ) -> Dict:
+        """
+        Generate a follow-up email from the transcript and analysis context.
+        
+        Args:
+            labeled_transcription: The labeled transcript text
+            analysis_result: The completed analysis dict (used as enrichment context)
+            request_id: Unique request identifier
+            
+        Returns:
+            Parsed follow-up email dict
+        """
+        email_result = await self.followup_email.generate_follow_up_email(
+            transcript=labeled_transcription,
+            analysis_context=analysis_result,
+            request_id=f"{request_id}_followup"
+        )
+        
+        if isinstance(email_result, str):
+            try:
+                email_result = json.loads(email_result)
+            except json.JSONDecodeError:
+                print(f"[Pipeline] Failed to parse follow-up email result as JSON")
+                email_result = {
+                    "error": "Failed to parse follow-up email",
+                    "raw": email_result
+                }
+        
+        return email_result
+
+
     
     async def run_pipeline(
         self,
