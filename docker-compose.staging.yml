@@ -15,6 +15,7 @@ services:
       - S2A_STAGING_MODE=true
       - API_KEY_SECRET=REDACTED_STAGING_SECRET
       - DATABASE_URL=postgresql://unused:unused@localhost:5432/unused
+      - HMAC_SECRET=staging-dummy-hmac-secret-min-32-chars
 
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
