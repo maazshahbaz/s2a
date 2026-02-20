@@ -1,0 +1,59 @@
+services:
+  s2a-api-staging:
+    build: .
+    container_name: s2a-api-staging
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
+    ports:
+      - "8002:8001"
+      - "9092:9090"
+    volumes:
+      - ./logs-staging:/app/logs
+      - /tmp/s2a:/tmp/s2a
+      - ../uploads:/app/uploads
+    environment:
+      - S2A_STAGING_MODE=true
+      - API_KEY_SECRET=REDACTED_STAGING_SECRET
+      - DATABASE_URL=postgresql://unused:unused@localhost:5432/unused
+      - HMAC_SECRET=staging-dummy-hmac-secret-min-32-chars
+
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+      - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
+      - S2A_DEVICE=cuda
+      - S2A_BATCH_SIZE=128
+      - S2A_MAX_CHUNK_DURATION=1440
+      - S2A_MIN_AUDIO_DURATION=1.0
+
+      - S2A_LOG_LEVEL=INFO
+      - S2A_ENABLE_MIXED_PRECISION=true
+      - S2A_GPU_MEMORY_FRACTION=0.3
+      - S2A_DISABLE_LOCAL_ASR=true
+      - S2A_NUM_WORKERS=4
+
+      - S2A_API_HOST=0.0.0.0
+      - S2A_API_PORT=8001
+
+      - WEBHOOK_FILE=/app/logs/webhook_data.jsonl
+
+    networks:
+      - s2a-network
+    runtime: nvidia
+    command:
+      [
+        "sh",
+        "-c",
+        "python -m uvicorn main:app --host 0.0.0.0 --port 8001",
+      ]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/v1/statistics/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  s2a-network:
+    driver: bridge

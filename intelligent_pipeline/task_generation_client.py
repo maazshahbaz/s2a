@@ -245,9 +245,6 @@ Return ONLY valid JSON. No extra text."""
         Returns:
             Dict with task generation results
         """
-        if not self.client:
-            await self.connect()
-
         # Handle empty action items
         if not action_items:
             print(f"[Task Generation] No action items provided for request_id: {request_id}")
@@ -257,6 +254,9 @@ Return ONLY valid JSON. No extra text."""
                     fallback_reason="No action items provided from call analysis"
                 ).model_dump_json())
             }
+
+        if not self.client:
+            await self.connect()
 
         # Format action items for the prompt
         action_items_text = "\n".join(

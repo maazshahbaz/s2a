@@ -29,6 +29,9 @@ class ASRConfig(BaseSettings):
     api_port: int = Field(default=8000, description="API port")
     api_workers: int = Field(default=1, description="Number of API workers")
     
+    # Staging
+    staging_mode: bool = Field(default=False, description="Staging mode — skip auth and database")
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: Optional[str] = Field(default=None, description="Log file path")

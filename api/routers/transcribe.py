@@ -47,8 +47,10 @@ async def transcribe_async(
     for key, value in headers.items():
         response.headers[key] = value
     
-    # Track API request usage immediately
-    await update_request_usage(request)
+    # Track API request usage immediately (skip in staging)
+    settings = get_settings()
+    if not settings.staging_mode:
+        await update_request_usage(request)
     
     if not audio_file.content_type.startswith(('audio/', 'video/')):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be audio or video.")
@@ -78,7 +80,7 @@ async def transcribe_async(
 
          # Check minimum duration (both sync/async same rule)
         if audio_duration < settings.min_audio_duration:
-            raise HTTPException(status_code=400, detail="Audio too short. Minimum duration is {settings.min_audio_duration} second.")
+            raise HTTPException(status_code=400, detail=f"Audio too short. Minimum duration is {settings.min_audio_duration} second.")
         
         
         # Check maximum duration for SYNC API (2 minutes max)
@@ -87,25 +89,27 @@ async def transcribe_async(
             error_msg = f"Audio too long for API. Maximum duration is {settings.max_audio_duration/60:.0f} minutes."
             raise HTTPException(status_code=400, detail=error_msg)
         
-        # Create job record in database
-        job = await transcription_svc.create_job(
-            job_id=job_id,
-            audio_path=audio_path,
-            is_async=True,
-            enhance_audio=enhance_audio,
-            remove_silence=remove_silence,
-            priority=priority,
-            callback_url=callback_url,
-            audio_duration=audio_duration,
-            audio_size=audio_size
-        )
-        
+        # Create job record in database (skip in staging)
+        if not settings.staging_mode:
+            job = await transcription_svc.create_job(
+                job_id=job_id,
+                audio_path=audio_path,
+                is_async=True,
+                enhance_audio=enhance_audio,
+                remove_silence=remove_silence,
+                priority=priority,
+                callback_url=callback_url,
+                audio_duration=audio_duration,
+                audio_size=audio_size
+            )
+
         # Add to background processing
         background_tasks.add_task(
             process_audio_background_db,
             job_id, audio_path, enhance_audio, remove_silence, priority, callback_url,
             include_intelligence, intelligence_mode,
-            request.state.api_key, transcription_svc,
+            request.state.api_key if not settings.staging_mode else None,
+            transcription_svc if not settings.staging_mode else None,
             parsed_metadata
         )
         
@@ -120,10 +124,11 @@ async def transcribe_async(
     except Exception as e:
         logger.error(f"Error setting up async job {job_id}: {e}")
         # Update job status to failed if it was created
-        try:
-            await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
-        except:
-            pass
+        if not settings.staging_mode:
+            try:
+                await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
+            except:
+                pass
         # Delete file only on failure
         try:
             if os.path.exists(audio_path):
