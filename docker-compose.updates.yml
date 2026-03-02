@@ -1,0 +1,22 @@
+services:
+
+  agent-summary-api:
+    build:
+      context: ./updates_api
+      dockerfile: dockerfile
+    container_name: agent-summary-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./updates_api:/app
+    environment:
+      - TRITON_URL=${TRITON_URL:-localhost:3701}
+      - MODEL_NAME=${MODEL_NAME:-mistral-nemo}
+    restart: unless-stopped
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4100/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
