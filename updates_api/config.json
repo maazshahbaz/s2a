@@ -1,0 +1,8 @@
+{
+  "services": {
+    "summary_generator": {
+      "url": "localhost:3701",
+      "model_name": "mistral-nemo"
+    }
+  }
+}
