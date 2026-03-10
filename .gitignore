@@ -98,5 +98,7 @@ node_modules
 /triton-service/mistral_triton/models/mistral-nemo/mistral-nemo-instruct-2407
 /triton-service/diarization_triton/models/diarization_model/engine
 /triton-service
+!/triton-service/streaming_asr_triton/
+!/triton-service/streaming_diar_triton/
 # nextjs
 .next

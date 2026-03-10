@@ -6,6 +6,10 @@ services:
       - "host.docker.internal:172.17.0.1"
     ports:
       - "8002:8001"
+<<<<<<< HEAD
+=======
+      - "8003:8003"
+>>>>>>> 930a6ad (feat: streaming STT implementation)
       - "9092:9090"
     volumes:
       - ./logs-staging:/app/logs

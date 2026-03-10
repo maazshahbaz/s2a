@@ -33,6 +33,19 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("STAGING MODE — skipping database and auth")
         app.state.db = None
+    if not settings.staging_mode:
+        logger.info("Connecting to database...")
+        await prisma.connect()
+        app.state.db = prisma
+        logger.info("Database connected ")
+
+        # Initialize auth store with database connection
+        logger.info("Initializing authentication service...")
+        initialize_auth_store(prisma)
+        logger.info("Authentication service initialized ")
+    else:
+        logger.info("STAGING MODE — skipping database and auth")
+        app.state.db = None
 
     logger.info("Initializing Triton Inference Service...")
 
@@ -41,16 +54,108 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize TritonService: {e}")
         app.state.triton_service = None
-    
-    
+
+    # Initialize streaming infrastructure
+    logger.info("Initializing streaming services...")
+    app.state.session_manager = None
+    app.state.streaming_asr_client = None
+    app.state.streaming_diar_client = None
+    app.state.audiosocket_server = None
+
+    try:
+        from intelligent_pipeline.session_manager import SessionManager
+        app.state.session_manager = SessionManager(
+            max_concurrent=settings.streaming_max_concurrent_sessions,
+            chunk_duration=settings.streaming_chunk_duration,
+        )
+    except Exception as e:
+        logger.warning(f"Session manager unavailable: {e}")
+
+    if app.state.session_manager:
+        from intelligent_pipeline.streaming_asr_client import AsyncStreamingASRClient
+        app.state.streaming_asr_client = AsyncStreamingASRClient()
+        try:
+            await app.state.streaming_asr_client.connect()
+            logger.info("Streaming ASR client connected")
+        except Exception as e:
+            logger.warning(f"Streaming ASR not available: {e}")
+            app.state.streaming_asr_client = None
+
+        from intelligent_pipeline.streaming_diar_client import AsyncStreamingDiarClient
+        app.state.streaming_diar_client = AsyncStreamingDiarClient()
+        try:
+            await app.state.streaming_diar_client.connect()
+            logger.info("Streaming diarization client connected")
+        except Exception as e:
+            logger.warning(f"Streaming diarization not available: {e}")
+            app.state.streaming_diar_client = None
+
+    audiosocket_allowed = True
+    if not settings.staging_mode and not settings.streaming_allowed_ips:
+        audiosocket_allowed = False
+        logger.warning(
+            "AudioSocket server disabled in non-staging mode because STREAMING_ALLOWED_IPS is not configured"
+        )
+
+    if (
+        app.state.session_manager
+        and app.state.streaming_asr_client
+        and app.state.streaming_diar_client
+        and audiosocket_allowed
+    ):
+        try:
+            from api.audiosocket_server import AudioSocketServer
+            app.state.audiosocket_server = AudioSocketServer(
+                session_manager=app.state.session_manager,
+                streaming_asr=app.state.streaming_asr_client,
+                streaming_diar=app.state.streaming_diar_client,
+                port=settings.streaming_audiosocket_port,
+                default_callback_url=settings.streaming_default_callback_url,
+                staging_mode=settings.staging_mode,
+                db=app.state.db,
+                idle_timeout_seconds=settings.streaming_idle_timeout_seconds,
+                max_session_duration_seconds=settings.streaming_max_session_duration_seconds,
+                max_frame_bytes=settings.streaming_max_frame_bytes,
+                max_bytes_per_second=settings.streaming_max_bytes_per_second,
+                inference_timeout_seconds=settings.streaming_inference_timeout_seconds,
+                allowed_ips=settings.streaming_allowed_ips,
+            )
+            await app.state.audiosocket_server.start()
+            logger.info("AudioSocket server started")
+        except Exception as e:
+            logger.warning(f"AudioSocket server unavailable: {e}")
+            app.state.audiosocket_server = None
+    else:
+        logger.warning("AudioSocket server not started: session manager, ASR, or diarization backend unavailable")
+
+    if app.state.session_manager and app.state.streaming_asr_client and app.state.streaming_diar_client:
+        logger.info("WebSocket streaming initialized")
+    else:
+        logger.warning("WebSocket streaming unavailable: session manager, ASR, or diarization backend not ready")
+
     yield
     
     # Shutdown
         
+    # Shutdown streaming services
+    if getattr(app.state, "audiosocket_server", None):
+        await app.state.audiosocket_server.stop()
+        logger.info("AudioSocket server stopped")
+    if getattr(app.state, "streaming_asr_client", None):
+        await app.state.streaming_asr_client.close()
+        logger.info("Streaming ASR client closed")
+    if getattr(app.state, "streaming_diar_client", None):
+        await app.state.streaming_diar_client.close()
+        logger.info("Streaming diarization client closed")
+
     if hasattr(app.state, "triton_service"):
         app.state.triton_service = None
-        logger.info("Triton service released ")
+        logger.info("Triton service released")
     
+    if not settings.staging_mode:
+        logger.info("Disconnecting database...")
+        await prisma.disconnect()
+        logger.info("Database disconnected")
     if not settings.staging_mode:
         logger.info("Disconnecting database...")
         await prisma.disconnect()

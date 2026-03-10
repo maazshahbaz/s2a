@@ -8,6 +8,7 @@ from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore
 from db_services.user import UserService
 from intelligent_pipeline.pipeline import Pipeline
+from typing import Optional
 
 async def run_async_pipeline(audio_path: str, request_id: str, callback = None, call_metadata: dict = None):
     """Convenience function to run the pipeline synchronously (e.g. for scripts)"""
@@ -22,7 +23,7 @@ async def process_audio_background_db(
     enhance_audio: bool,
     remove_silence: bool,
     priority: int,
-    callback_url: str,
+    callback_url: Optional[str] = None,
     include_intelligence: bool = False,
     intelligence_mode: str = "auto_detect",
     api_key: str = None,
@@ -45,7 +46,6 @@ async def process_audio_background_db(
             asyncio.set_event_loop(loop)
         
         def pipeline_callback(raw_trans, labeled_trans, analysis, diar_info):
-            print("data", raw_trans, labeled_trans, analysis, diar_info)
             async def _handle_results():
                 # Calculate processing time from job creation
                 end_time = datetime.now(timezone.utc)
@@ -76,15 +76,27 @@ async def process_audio_background_db(
                         chunks=diar_info.get('chunk_count', 0)
                     )
 
-                # Webhook
-                webhook_payload = WebhookPayload(
-                    job_id=job_id,
-                    transcription=raw_trans,
-                    ai_analysis=intelligence_result.get("analysis"),
-                    diarized_transcription=labeled_trans,
-                    agent_tasks=intelligence_result.get("agent_tasks")
-                )
-                await webhook_sender.send_webhook(callback_url, webhook_payload)
+                if api_key:
+                    try:
+                        from db_services.auth import update_audio_usage
+                        from utils import get_audio_duration
+
+                        await update_audio_usage(api_key, get_audio_duration(audio_path))
+                    except Exception as usage_exc:
+                        logger.warning(f"Failed to update audio usage for job {job_id}: {usage_exc}")
+
+                # Webhook (optional for streaming sessions where DB is primary sink)
+                if callback_url:
+                    webhook_payload = WebhookPayload(
+                        job_id=job_id,
+                        transcription=raw_trans,
+                        ai_analysis=intelligence_result.get("analysis"),
+                        diarized_transcription=labeled_trans,
+                        agent_tasks=intelligence_result.get("agent_tasks")
+                    )
+                    await webhook_sender.send_webhook(callback_url, webhook_payload)
+                else:
+                    logger.info(f"No callback_url configured for job {job_id}; skipping webhook delivery")
 
             # Schedule it properly from thread
             asyncio.run_coroutine_threadsafe(_handle_results(), loop)
@@ -101,13 +113,14 @@ async def process_audio_background_db(
         if transcription_svc:
             await transcription_svc.update_job_status(job_id, 'failed', error_message=str(e))
         
-        # Send error webhook
-        error_payload = WebhookPayload(
-            job_id=job_id,
-            status="failed",
-            error=str(e)
-        )
-        asyncio.create_task(webhook_sender.send_webhook(callback_url, error_payload))
+        # Send error webhook when callback target is configured
+        if callback_url:
+            error_payload = WebhookPayload(
+                job_id=job_id,
+                status="failed",
+                error=str(e)
+            )
+            asyncio.create_task(webhook_sender.send_webhook(callback_url, error_payload))
     
     finally:
         # Clean up audio file (keep it for completed jobs, remove for failed/rejected)
