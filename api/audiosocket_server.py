@@ -12,7 +12,6 @@ Asterisk AudioSocket protocol:
 import asyncio
 import json
 import os
-import re
 import struct
 import uuid
 from typing import Optional
@@ -20,6 +19,11 @@ from typing import Optional
 from loguru import logger
 
 from api.streaming_security import is_ip_allowed, parse_allowed_networks
+from api.streaming_transcript import (
+    append_transcript,
+    build_chunk_segment,
+    extract_model_delta,
+)
 from webhook import webhook_sender
 
 # AudioSocket frame types
@@ -28,194 +32,8 @@ FRAME_UUID = 0x01
 FRAME_SILENCE = 0x02
 FRAME_AUDIO = 0x10
 FRAME_TRANSCRIPT_UPDATE = 0x20
-SENTENCE_SPLIT_RE = re.compile(r".+?(?:[.!?]+)(?=\s|$)")
-FORCED_SENTENCE_WORDS = 14
 
 HEADER_SIZE = 3  # 1 byte type + 2 bytes length
-
-
-def _canonical_token(token: str) -> str:
-    """Normalize a token for overlap matching (case/punctuation-insensitive)."""
-    core = re.sub(r"^\W+|\W+$", "", token or "").lower()
-    return core or (token or "").lower()
-
-
-def _find_suffix_prefix_word_overlap(committed_words, new_words, max_window: int = 80) -> int:
-    """
-    Find the largest K where committed_words[-K:] == new_words[:K] under canonical token matching.
-    """
-    if not committed_words or not new_words:
-        return 0
-
-    committed_norm = [_canonical_token(w) for w in committed_words]
-    new_norm = [_canonical_token(w) for w in new_words]
-    max_overlap = min(len(committed_norm), len(new_norm), max_window)
-
-    for k in range(max_overlap, 0, -1):
-        if committed_norm[-k:] == new_norm[:k]:
-            return k
-    return 0
-
-
-def _extract_incremental_delta(model_text: str, committed_text: str):
-    """
-    Merge model text into a running committed transcript and return only the new delta.
-
-    Handles sparse/repeated/non-cumulative streaming outputs where the model may emit:
-      - empty text on some chunks
-      - repeated short hypotheses
-      - overlapping fragments
-    """
-    new_text = re.sub(r"\s+", " ", (model_text or "").strip())
-    committed = re.sub(r"\s+", " ", (committed_text or "").strip())
-
-    if not new_text:
-        return "", committed
-    if not committed:
-        return new_text, new_text
-
-    lower_new = new_text.lower()
-    lower_committed = committed.lower()
-
-    if lower_new == lower_committed:
-        return "", committed
-    if lower_committed.endswith(lower_new):
-        return "", committed
-    if f" {lower_new} " in f" {lower_committed} ":
-        return "", committed
-
-    if lower_new.startswith(lower_committed):
-        delta = new_text[len(committed):].strip()
-        if not delta or not any(ch.isalnum() for ch in delta):
-            return "", committed
-        return delta, _append_live_text(committed, delta)
-
-    committed_words = committed.split()
-    new_words = new_text.split()
-    overlap = _find_suffix_prefix_word_overlap(committed_words, new_words)
-    if overlap >= len(new_words):
-        return "", committed
-    if overlap > 0:
-        delta = " ".join(new_words[overlap:]).strip()
-        if not delta or not any(ch.isalnum() for ch in delta):
-            return "", committed
-        return delta, _append_live_text(committed, delta)
-
-    if not any(ch.isalnum() for ch in new_text):
-        return "", committed
-    return new_text, _append_live_text(committed, new_text)
-
-
-def _append_live_text(existing_text: str, new_text: str) -> str:
-    """Append new text to the live sentence buffer with normalized spacing."""
-    clean_new = re.sub(r"\s+", " ", (new_text or "").strip())
-    if not clean_new:
-        return (existing_text or "").strip()
-    if not existing_text:
-        return clean_new
-    return f"{existing_text.strip()} {clean_new}".strip()
-
-
-def _extract_sentence_chunks(buffer_text: str, force_flush: bool = False):
-    """
-    Split buffered text into sentence-level chunks.
-    Falls back to fixed-size chunks when punctuation is absent for too long.
-    """
-    normalized = re.sub(r"\s+", " ", (buffer_text or "").strip())
-    if not normalized:
-        return [], ""
-
-    chunks = []
-    last_end = 0
-    for match in SENTENCE_SPLIT_RE.finditer(normalized):
-        sentence = match.group().strip()
-        if sentence:
-            chunks.append(sentence)
-        last_end = match.end()
-
-    remainder = normalized[last_end:].strip()
-
-    if force_flush and remainder:
-        chunks.append(remainder)
-        remainder = ""
-    elif not chunks and remainder:
-        words = remainder.split()
-        if len(words) >= FORCED_SENTENCE_WORDS:
-            chunks.append(" ".join(words[:FORCED_SENTENCE_WORDS]))
-            remainder = " ".join(words[FORCED_SENTENCE_WORDS:])
-
-    return chunks, remainder
-
-
-def _choose_speaker_id(diar_result: dict, time_point: float) -> int:
-    def _coerce_speaker_id(raw_speaker) -> int:
-        if isinstance(raw_speaker, int):
-            return raw_speaker
-        if isinstance(raw_speaker, str):
-            match = re.search(r"\d+", raw_speaker)
-            if match:
-                return int(match.group())
-        try:
-            return int(raw_speaker)
-        except (TypeError, ValueError):
-            return 0
-
-    segments = (diar_result or {}).get("segments", [])
-    parsed_segments = []
-    parsed_speaker_ids = []
-
-    for seg in segments:
-        try:
-            start = float(seg.get("start", 0.0))
-            end = float(seg.get("end", 0.0))
-            speaker = _coerce_speaker_id(seg.get("speaker", 0))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        parsed_segments.append((start, end, speaker))
-        parsed_speaker_ids.append(speaker)
-
-    if not parsed_segments:
-        return 0
-
-    # Some diarization outputs are 1-based labels (1,2,3...).
-    # Normalize to 0-based IDs for consistent API payloads.
-    speaker_base = 1 if min(parsed_speaker_ids) >= 1 else 0
-    best_speaker = 0
-    best_distance = float("inf")
-
-    for start, end, raw_speaker in parsed_segments:
-        speaker = max(0, raw_speaker - speaker_base)
-
-        if start <= time_point <= end:
-            return speaker
-        distance = min(abs(time_point - start), abs(time_point - end))
-        if distance < best_distance:
-            best_distance = distance
-            best_speaker = speaker
-
-    return best_speaker
-
-
-def _build_live_delta_segment(delta_text: str, diar_result: dict, cursor_time: float):
-    """Build a single non-overlapping transcript segment for streaming output."""
-    text = (delta_text or "").strip()
-    if not text:
-        return None, cursor_time
-
-    words = max(1, len(text.split()))
-    est_duration = max(0.25, words * 0.32)
-    start = max(0.0, cursor_time)
-    end = start + est_duration
-    speaker_id = _choose_speaker_id(diar_result, (start + end) / 2.0)
-
-    segment = {
-        "speaker": f"Speaker {speaker_id + 1}",
-        "speaker_id": speaker_id,
-        "text": text,
-        "start": round(start, 3),
-        "end": round(end, 3),
-    }
-    return segment, end
 
 
 class AudioSocketServer:
@@ -332,9 +150,8 @@ class AudioSocketServer:
         session = None
         session_id = None
         latest_diar_result = {"segments": [], "num_speakers": 0}
-        committed_transcript = ""
-        emission_cursor = 0.0
-        live_sentence_buffer = ""
+        previous_model_text = ""
+        cumulative_transcript = ""
 
         try:
             while True:
@@ -426,6 +243,9 @@ class AudioSocketServer:
                     if chunk is None:
                         continue
 
+                    chunk_offset = session.get_time_offset()
+                    chunk_end = chunk_offset + (len(chunk) / 16000.0)
+
                     try:
                         asr_result, diar_result = await asyncio.wait_for(
                             asyncio.gather(
@@ -453,56 +273,44 @@ class AudioSocketServer:
                         if not model_text:
                             continue
 
-                        delta_text, committed_transcript = _extract_incremental_delta(
+                        delta_text, previous_model_text = extract_model_delta(
                             model_text,
-                            committed_transcript,
+                            previous_model_text,
                         )
                         if not delta_text:
                             continue
 
-                        live_sentence_buffer = _append_live_text(live_sentence_buffer, delta_text)
-                        sentence_chunks, live_sentence_buffer = _extract_sentence_chunks(
-                            live_sentence_buffer,
-                            force_flush=False,
+                        cumulative_transcript = append_transcript(cumulative_transcript, delta_text)
+                        segment = build_chunk_segment(
+                            delta_text,
+                            latest_diar_result,
+                            chunk_offset,
+                            chunk_end,
                         )
-                        if not sentence_chunks:
+                        if not segment:
                             continue
 
-                        emission_cursor = max(emission_cursor, session.get_time_offset())
-                        emitted_segments = []
-                        for sentence_text in sentence_chunks:
-                            segment, emission_cursor = _build_live_delta_segment(
-                                sentence_text,
-                                latest_diar_result,
-                                emission_cursor,
-                            )
-                            if not segment:
-                                continue
-                            session.add_transcript_segment(segment)
-                            emitted_segments.append(segment)
-
-                        if emitted_segments:
-
-                            transcript_msg = json.dumps(
-                                {
-                                    "type": "transcript.update",
-                                    "is_final": False,
-                                    "update_mode": "sentence",
-                                    "cumulative_text": committed_transcript,
-                                    "segments": emitted_segments,
-                                    "num_speakers": max(
-                                        latest_diar_result.get("num_speakers", 0),
-                                        max(seg.get("speaker_id", 0) + 1 for seg in emitted_segments),
-                                    ),
-                                }
-                            ).encode("utf-8")
-                            response_header = struct.pack(
-                                "!BH",
-                                FRAME_TRANSCRIPT_UPDATE,
-                                len(transcript_msg),
-                            )
-                            writer.write(response_header + transcript_msg)
-                            await writer.drain()
+                        session.add_transcript_segment(segment)
+                        transcript_msg = json.dumps(
+                            {
+                                "type": "transcript.update",
+                                "is_final": False,
+                                "update_mode": "sentence",
+                                "cumulative_text": cumulative_transcript,
+                                "segments": [segment],
+                                "num_speakers": max(
+                                    latest_diar_result.get("num_speakers", 0),
+                                    segment.get("speaker_id", 0) + 1,
+                                ),
+                            }
+                        ).encode("utf-8")
+                        response_header = struct.pack(
+                            "!BH",
+                            FRAME_TRANSCRIPT_UPDATE,
+                            len(transcript_msg),
+                        )
+                        writer.write(response_header + transcript_msg)
+                        await writer.drain()
                     except asyncio.TimeoutError:
                         logger.error(f"[AudioSocket] Inference timeout for {session_id}")
                         break
@@ -521,7 +329,10 @@ class AudioSocketServer:
             if session:
                 try:
                     remaining = session.get_remaining_chunk()
+                    final_segment = None
                     if remaining is not None:
+                        remaining_offset = session.get_time_offset()
+                        remaining_end = remaining_offset + (len(remaining) / 16000.0)
                         try:
                             asr_result, diar_result = await asyncio.wait_for(
                                 asyncio.gather(
@@ -544,58 +355,48 @@ class AudioSocketServer:
                                 latest_diar_result = diar_result
                             final_text = (asr_result.get("text") or "").strip()
                             if final_text:
-                                final_delta_text, committed_transcript = _extract_incremental_delta(
+                                final_delta_text, previous_model_text = extract_model_delta(
                                     final_text,
-                                    committed_transcript,
+                                    previous_model_text,
                                 )
                                 if final_delta_text:
-                                    live_sentence_buffer = _append_live_text(
-                                        live_sentence_buffer,
+                                    cumulative_transcript = append_transcript(
+                                        cumulative_transcript,
                                         final_delta_text,
                                     )
+                                    final_segment = build_chunk_segment(
+                                        final_delta_text,
+                                        latest_diar_result,
+                                        remaining_offset,
+                                        remaining_end,
+                                    )
+                                    if final_segment:
+                                        session.add_transcript_segment(final_segment)
                         except Exception as exc:
                             logger.warning(f"[AudioSocket] Final inference failed for {session_id}: {exc}")
 
-                    final_chunks, live_sentence_buffer = _extract_sentence_chunks(
-                        live_sentence_buffer,
-                        force_flush=True,
-                    )
-                    if final_chunks:
+                    if final_segment:
                         try:
-                            final_segments = []
-                            for sentence_text in final_chunks:
-                                segment, emission_cursor = _build_live_delta_segment(
-                                    sentence_text,
-                                    latest_diar_result,
-                                    emission_cursor,
-                                )
-                                if not segment:
-                                    continue
-                                session.add_transcript_segment(segment)
-                                final_segments.append(segment)
-
-                            if final_segments:
-
-                                transcript_msg = json.dumps(
-                                    {
-                                        "type": "transcript.update",
-                                        "is_final": True,
-                                        "update_mode": "sentence",
-                                        "cumulative_text": committed_transcript,
-                                        "segments": final_segments,
-                                        "num_speakers": max(
-                                            latest_diar_result.get("num_speakers", 0),
-                                            max(seg.get("speaker_id", 0) + 1 for seg in final_segments),
-                                        ),
-                                    }
-                                ).encode("utf-8")
-                                response_header = struct.pack(
-                                    "!BH",
-                                    FRAME_TRANSCRIPT_UPDATE,
-                                    len(transcript_msg),
-                                )
-                                writer.write(response_header + transcript_msg)
-                                await writer.drain()
+                            transcript_msg = json.dumps(
+                                {
+                                    "type": "transcript.update",
+                                    "is_final": True,
+                                    "update_mode": "sentence",
+                                    "cumulative_text": cumulative_transcript,
+                                    "segments": [final_segment],
+                                    "num_speakers": max(
+                                        latest_diar_result.get("num_speakers", 0),
+                                        final_segment.get("speaker_id", 0) + 1,
+                                    ),
+                                }
+                            ).encode("utf-8")
+                            response_header = struct.pack(
+                                "!BH",
+                                FRAME_TRANSCRIPT_UPDATE,
+                                len(transcript_msg),
+                            )
+                            writer.write(response_header + transcript_msg)
+                            await writer.drain()
                         except Exception as exc:
                             logger.warning(
                                 f"[AudioSocket] Could not send final transcript frame for {session_id}: {exc}"
