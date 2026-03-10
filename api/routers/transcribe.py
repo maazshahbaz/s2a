@@ -19,6 +19,7 @@ router = APIRouter(prefix="/transcribe", tags=["Transcription"])
 async def transcribe_async(
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     callback_url: str = Form(...),
     audio_file: UploadFile = File(...),
     enhance_audio: bool = True,
@@ -27,7 +28,6 @@ async def transcribe_async(
     intelligence_mode: str = "auto_detect",
     priority: int = 0,
     call_metadata: Optional[str] = Form(None),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     key_info: APIKey = Depends(require_permission("transcribe")),
     transcription_svc = Depends(get_transcription_service)
 ):
@@ -91,7 +91,7 @@ async def transcribe_async(
         
         # Create job record in database (skip in staging)
         if not settings.staging_mode:
-            job = await transcription_svc.create_job(
+            await transcription_svc.create_job(
                 job_id=job_id,
                 audio_path=audio_path,
                 is_async=True,
@@ -135,7 +135,7 @@ async def transcribe_async(
                 await delete_audio_file(audio_path)
         except Exception as cleanup_err:
             logger.warning(f"Failed to clean up audio file {audio_path}: {cleanup_err}")
-        raise HTTPException(status_code=500, detail=f"Failed to set up async transcription: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to set up async transcription")
 
 @router.get("/status/{job_id}", response_model=StatusResponse)
 async def get_transcription_status(
@@ -203,6 +203,7 @@ async def cancel_job(
     request: Request,
     response: Response,
     key_info: APIKey = Depends(require_permission("transcribe")),
+    transcription_svc = Depends(get_transcription_service)
 ):
     """Cancel a pending or processing job - requires transcribe permission"""
     
@@ -211,14 +212,22 @@ async def cancel_job(
     for key, value in headers.items():
         response.headers[key] = value
     
-    # Note: This is a simplified implementation
-    # In production, you'd want more sophisticated job cancellation
-    async with batch_proc.batcher._lock:
-        if job_id in batch_proc.batcher.processing_jobs:
-            job = batch_proc.batcher.processing_jobs[job_id]
-            job.status = "cancelled"
-            return {"message": f"Job {job_id} cancelled"}
-    
-    return {"message": f"Job {job_id} not found or cannot be cancelled"}
+    settings = get_settings()
+    if settings.staging_mode:
+        return {"message": "Job cancellation is unavailable in staging mode"}
+
+    job = await transcription_svc.get_job(job_id)
+    if job is None:
+        return {"message": f"Job {job_id} not found"}
+
+    if job.status in {"completed", "failed", "rejected", "cancelled"}:
+        return {"message": f"Job {job_id} cannot be cancelled (status={job.status})"}
+
+    await transcription_svc.update_job_status(
+        job_id,
+        "cancelled",
+        error_message="Cancelled by user",
+    )
+    return {"message": f"Job {job_id} cancelled"}
 
 

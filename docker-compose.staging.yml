@@ -24,22 +24,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-      - S2A_MODEL_NAME=nvidia/parakeet-tdt-0.6b-v2
-      - S2A_DEVICE=cuda
-      - S2A_BATCH_SIZE=128
-      - S2A_MAX_CHUNK_DURATION=1440
       - S2A_MIN_AUDIO_DURATION=1.0
 
-      - S2A_LOG_LEVEL=INFO
-      - S2A_ENABLE_MIXED_PRECISION=true
-      - S2A_GPU_MEMORY_FRACTION=0.3
-      - S2A_DISABLE_LOCAL_ASR=true
-      - S2A_NUM_WORKERS=4
-
-      - S2A_API_HOST=0.0.0.0
-      - S2A_API_PORT=8001
-
-      - WEBHOOK_FILE=/app/logs/webhook_data.jsonl
 
     networks:
       - s2a-network

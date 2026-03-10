@@ -136,17 +136,6 @@ class StreamingMerger:
 
         return best_speaker
 
-    def _get_dominant_speaker(self, segments: List[Dict]) -> int:
-        """Get the speaker with the most total duration."""
-        if not segments:
-            return 0
-        speaker_durations = {}
-        for seg in segments:
-            spk = seg.get("speaker", 0)
-            dur = seg.get("end", 0) - seg.get("start", 0)
-            speaker_durations[spk] = speaker_durations.get(spk, 0) + dur
-        return max(speaker_durations, key=speaker_durations.get)
-
     def _get_word_text(self, word_info) -> str:
         if isinstance(word_info, dict):
             return word_info.get("text", word_info.get("word", ""))

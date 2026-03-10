@@ -365,7 +365,21 @@ class AudioSocketServer:
 
                 payload = b""
                 if payload_len > 0:
-                    payload = await reader.readexactly(payload_len)
+                    try:
+                        payload = await asyncio.wait_for(
+                            reader.readexactly(payload_len),
+                            timeout=self.idle_timeout_seconds,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"[AudioSocket] Payload read timeout for session {session_id or 'unknown'}"
+                        )
+                        break
+                    except asyncio.IncompleteReadError:
+                        logger.info(
+                            f"[AudioSocket] Connection closed during payload read: {session_id or 'unknown'}"
+                        )
+                        break
 
                 if session is None and frame_type != FRAME_UUID:
                     logger.warning(
@@ -374,6 +388,12 @@ class AudioSocketServer:
                     break
 
                 if frame_type == FRAME_UUID:
+                    if session is not None:
+                        logger.warning(
+                            f"[AudioSocket] Duplicate UUID frame for active session {session_id}; closing connection"
+                        )
+                        break
+
                     if len(payload) >= 16:
                         call_uuid = str(uuid.UUID(bytes=payload[:16]))
                     else:

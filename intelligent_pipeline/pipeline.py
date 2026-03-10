@@ -1,8 +1,8 @@
 import asyncio
 import json
 import os
-import soundfile as sf
 from typing import Tuple, Dict, List, Optional
+from loguru import logger
 from .config_loader import config
 
 from .audio_chunking import AudioChunking
@@ -78,11 +78,6 @@ class Pipeline:
         loop = asyncio.get_event_loop()
         tasks = [loop.run_in_executor(None, os.remove, path) for path in chunk_paths]
         await asyncio.gather(*tasks, return_exceptions=True)
-    
-    def _get_audio_duration(self, audio_path: str) -> float:
-        """Get audio duration in seconds."""
-        audio_data, sample_rate = sf.read(audio_path)
-        return len(audio_data) / sample_rate
     
     async def _run_global_diarization(self, audio_path: str, request_id: str) -> Dict:
         """
@@ -194,7 +189,7 @@ class Pipeline:
             try:
                 analysis_result = json.loads(analysis_result)
             except json.JSONDecodeError:
-                print(f"[Pipeline] Failed to parse analysis result as JSON")
+                logger.warning("[Pipeline] Failed to parse analysis result as JSON")
                 analysis_result = {"error": "Failed to parse analysis", "raw": analysis_result}
 
         # Extract agent_scoring from nested structure if present
@@ -237,7 +232,10 @@ class Pipeline:
                 action_items = extracted_items.get('action_items', [])
                 contact_info = extracted_items.get('contact_info', {})
 
-                print(f"[Pipeline] Task generation: {len(action_items)} action items, metadata keys: {list(call_metadata.keys())}")
+                logger.info(
+                    f"[Pipeline] Task generation: {len(action_items)} action items, "
+                    f"metadata keys: {list(call_metadata.keys())}"
+                )
 
                 task_result = await self.task_generation.generate_tasks(
                     action_items=action_items,
@@ -253,7 +251,7 @@ class Pipeline:
                     analysis_result['agent_tasks'] = task_result
 
             except Exception as e:
-                print(f"[Pipeline] Task generation failed (non-fatal): {e}")
+                logger.warning(f"[Pipeline] Task generation failed (non-fatal): {e}")
                 analysis_result['agent_tasks'] = {
                     "tasks": [],
                     "task_count": 0,
@@ -290,13 +288,38 @@ class Pipeline:
             try:
                 email_result = json.loads(email_result)
             except json.JSONDecodeError:
-                print(f"[Pipeline] Failed to parse follow-up email result as JSON")
+                logger.warning("[Pipeline] Failed to parse follow-up email result as JSON")
                 email_result = {
                     "error": "Failed to parse follow-up email",
                     "raw": email_result
                 }
         
         return email_result
+
+    def _extract_followup_email_payload(self, followup_result: Dict, request_id: str) -> Optional[Dict]:
+        """
+        Extract follow-up email payload from varying response shapes.
+        Returns None when payload is missing or malformed.
+        """
+        if not isinstance(followup_result, dict):
+            logger.warning(f"[Pipeline] Invalid follow-up response type for {request_id}: {type(followup_result)}")
+            return None
+
+        output = followup_result.get("output")
+        if isinstance(output, dict):
+            payload = output.get("follow_up_email")
+            if isinstance(payload, dict):
+                return payload
+
+        direct_payload = followup_result.get("follow_up_email")
+        if isinstance(direct_payload, dict):
+            return direct_payload
+
+        logger.warning(
+            f"[Pipeline] Missing follow_up_email payload for {request_id}. "
+            f"Response keys: {list(followup_result.keys())}"
+        )
+        return None
 
 
     
@@ -317,82 +340,97 @@ class Pipeline:
         Returns:
             Tuple of (raw_transcription, labeled_transcription, analysis_with_scoring, metadata)
         """
-        
-        # Step 1: Chunk audio to 5-minute intervals
-        chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
-        
-        # Step 2: Run global diarization and chunk transcription in parallel
-        global_diar_task = self._run_global_diarization(audio_path, request_id)
-        transcription_task = self._run_transcription_on_chunks(chunk_paths, request_id)
-        
-        global_diar_result, transcription_results = await asyncio.gather(
-            global_diar_task,
-            transcription_task
-        )
-        
-        # Extract global segments
-        global_segments = global_diar_result.get('segments', [])
-        print(f"[Pipeline] Global diarization: {len(global_segments)} segments, "
-              f"{global_diar_result.get('num_speakers', 0)} speakers")
-        
-        # Step 3: Align global segments to chunk boundaries
-        chunk_diarization = self._align_segments_to_global(global_segments, chunk_timings)
-        
-        # Step 4: Merge transcriptions with globally-consistent diarization
-        raw_transcription, labeled_transcription = await self.merger.merge_transcriptions(
-            request_id,
-            transcription_results,
-            [{'segments': segs} for segs in chunk_diarization],
-            chunk_timings
-        )
-        
-        # Step 5: Run AI analysis, CSR scoring, and cleanup chunks in parallel
-        if not labeled_transcription:
-            # If transcription is empty or None, skip analysis/scoring and just cleanup
-            combined_analysis = None
-            await self._delete_chunks_async(chunk_paths)
-        else:
-            analysis_scoring_task = self._run_analysis_and_scoring(
-                labeled_transcription,
+
+        chunk_paths: List[str] = []
+        chunk_timings: List[Tuple[float, float]] = []
+        global_diar_result: Dict = {}
+        global_segments: List[Dict] = []
+        raw_transcription = ""
+        labeled_transcription = ""
+        combined_analysis = None
+
+        try:
+            # Step 1: Chunk audio to 5-minute intervals
+            chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
+
+            # Step 2: Run global diarization and chunk transcription in parallel
+            global_diar_task = self._run_global_diarization(audio_path, request_id)
+            transcription_task = self._run_transcription_on_chunks(chunk_paths, request_id)
+
+            global_diar_result, transcription_results = await asyncio.gather(
+                global_diar_task,
+                transcription_task
+            )
+
+            # Extract global segments
+            global_segments = global_diar_result.get('segments', [])
+            logger.info(
+                f"[Pipeline] Global diarization: {len(global_segments)} segments, "
+                f"{global_diar_result.get('num_speakers', 0)} speakers"
+            )
+
+            # Step 3: Align global segments to chunk boundaries
+            chunk_diarization = self._align_segments_to_global(global_segments, chunk_timings)
+
+            # Step 4: Merge transcriptions with globally-consistent diarization
+            raw_transcription, labeled_transcription = await self.merger.merge_transcriptions(
                 request_id,
-                call_metadata
-            )
-            cleanup_task = self._delete_chunks_async(chunk_paths)
-            
-            combined_analysis, _ = await asyncio.gather(
-                analysis_scoring_task,
-                cleanup_task
+                transcription_results,
+                [{'segments': segs} for segs in chunk_diarization],
+                chunk_timings
             )
 
-            # Step 6: Generate follow-up email
-            followup_result = await self._run_followup_email(
-                labeled_transcription,
-                combined_analysis,
-                request_id
-            )
-            followup_result = followup_result['output']["follow_up_email"]
-            if 'analysis' in combined_analysis and 'ai_analysis' in combined_analysis.get('analysis', {}):
-                combined_analysis['analysis']['ai_analysis']['follow_up_email'] = followup_result
-
-            elif 'ai_analysis' in combined_analysis:
-                combined_analysis['ai_analysis']['follow_up_email'] = followup_result
-
+            # Step 5: Run AI analysis, CSR scoring, and cleanup chunks in parallel
+            if not labeled_transcription:
+                # If transcription is empty or None, skip analysis/scoring and just cleanup
+                combined_analysis = None
+                await self._delete_chunks_async(chunk_paths)
             else:
-                combined_analysis['follow_up_email'] = followup_result  
-        
-        
-        # Close connections
-        await self.diarization.close()
-        await self.csr_scoring.close()
-        await self.fraud_detection.close()
-        await self.task_generation.close()
-        
-        # Prepare metadata
-        metadata = {
-            'chunk_count': len(chunk_paths),
-            'chunk_timings': chunk_timings,
-            'num_speakers': global_diar_result.get('num_speakers', 0),
-            'total_segments': len(global_segments)
-        }
-        
-        return raw_transcription, labeled_transcription, combined_analysis, metadata
+                analysis_scoring_task = self._run_analysis_and_scoring(
+                    labeled_transcription,
+                    request_id,
+                    call_metadata
+                )
+                cleanup_task = self._delete_chunks_async(chunk_paths)
+
+                combined_analysis, _ = await asyncio.gather(
+                    analysis_scoring_task,
+                    cleanup_task
+                )
+
+                # Step 6: Generate follow-up email
+                followup_result = await self._run_followup_email(
+                    labeled_transcription,
+                    combined_analysis,
+                    request_id
+                )
+                followup_payload = self._extract_followup_email_payload(followup_result, request_id)
+                if followup_payload:
+                    if 'analysis' in combined_analysis and 'ai_analysis' in combined_analysis.get('analysis', {}):
+                        combined_analysis['analysis']['ai_analysis']['follow_up_email'] = followup_payload
+                    elif 'ai_analysis' in combined_analysis:
+                        combined_analysis['ai_analysis']['follow_up_email'] = followup_payload
+                    else:
+                        combined_analysis['follow_up_email'] = followup_payload
+
+            # Prepare metadata
+            metadata = {
+                'chunk_count': len(chunk_paths),
+                'chunk_timings': chunk_timings,
+                'num_speakers': global_diar_result.get('num_speakers', 0),
+                'total_segments': len(global_segments)
+            }
+
+            return raw_transcription, labeled_transcription, combined_analysis, metadata
+        finally:
+            close_names = ["diarization", "csr_scoring", "fraud_detection", "task_generation"]
+            close_tasks = [
+                self.diarization.close(),
+                self.csr_scoring.close(),
+                self.fraud_detection.close(),
+                self.task_generation.close(),
+            ]
+            close_results = await asyncio.gather(*close_tasks, return_exceptions=True)
+            for client_name, close_result in zip(close_names, close_results):
+                if isinstance(close_result, Exception):
+                    logger.warning(f"[Pipeline] Failed to close {client_name} client: {close_result}")

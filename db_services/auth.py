@@ -397,11 +397,6 @@ def require_permission(permission: str):
     return check_permission
 
 
-async def update_usage(request: Request, audio_duration: float = 0.0):
-    """Update API key usage statistics (tracks both request and audio duration)"""
-    if hasattr(request.state, 'api_key') and api_key_store:
-        await api_key_store.update_key_usage(request.state.api_key, audio_duration, track_request=True)
-
 async def update_request_usage(request: Request):
     """Track API request usage only (for when request is made)"""
     if hasattr(request.state, 'api_key') and api_key_store:

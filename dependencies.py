@@ -1,8 +1,7 @@
-from fastapi import Request, HTTPException, Depends
+from fastapi import Request, Depends
 from loguru import logger
 from webhook import webhook_sender, WebhookPayload
 import asyncio
-import os
 from generated.prisma import Prisma
 from db_services.transcription import TranscriptionJobService
 from db_services.auth import PrismaAPIKeyStore

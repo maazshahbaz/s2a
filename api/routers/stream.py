@@ -400,6 +400,11 @@ async def stream_audio(websocket: WebSocket):
             await websocket.close()
             return
 
+        if not isinstance(start_msg, dict):
+            await websocket.send_json({"type": "error", "message": "session.start payload must be a JSON object"})
+            await websocket.close()
+            return
+
         if start_msg.get("type") != "session.start":
             await websocket.send_json({"type": "error", "message": "Expected session.start message"})
             await websocket.close()
@@ -420,6 +425,12 @@ async def stream_audio(websocket: WebSocket):
             return
 
         audio_config = start_msg.get("audio_config", {})
+        if audio_config is None:
+            audio_config = {}
+        if not isinstance(audio_config, dict):
+            await websocket.send_json({"type": "error", "message": "audio_config must be a JSON object"})
+            await websocket.close()
+            return
         input_sample_rate = audio_config.get("sample_rate", 8000)
         try:
             input_sample_rate = int(input_sample_rate)
@@ -445,7 +456,13 @@ async def stream_audio(websocket: WebSocket):
                 input_sample_rate=input_sample_rate,
             )
         except (ValueError, RuntimeError) as exc:
-            await websocket.send_json({"type": "error", "message": str(exc)})
+            logger.warning(f"[Stream] Session create failed for {session_id}: {exc}")
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": "Unable to create session (duplicate session_id or capacity reached)",
+                }
+            )
             await websocket.close()
             return
 
@@ -589,7 +606,7 @@ async def stream_audio(websocket: WebSocket):
                     break
                 except Exception as exc:
                     logger.error(f"[Stream] Inference error for {session_id}: {exc}")
-                    await websocket.send_json({"type": "error", "message": f"Inference error: {str(exc)}"})
+                    await websocket.send_json({"type": "error", "message": "Inference error"})
 
         remaining = session.get_remaining_chunk()
         if remaining is not None:
@@ -725,7 +742,7 @@ async def stream_audio(websocket: WebSocket):
     except Exception as exc:
         logger.error(f"[Stream] Unexpected error: {exc}")
         try:
-            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.send_json({"type": "error", "message": "Unexpected server error"})
         except Exception:
             pass
     finally:
