@@ -280,7 +280,10 @@ class AudioSocketServer:
                         if not delta_text:
                             continue
 
-                        cumulative_transcript = append_transcript(cumulative_transcript, delta_text)
+                        updated_cumulative = append_transcript(cumulative_transcript, delta_text)
+                        if updated_cumulative == cumulative_transcript:
+                            continue
+                        cumulative_transcript = updated_cumulative
                         segment = build_chunk_segment(
                             delta_text,
                             latest_diar_result,
@@ -360,18 +363,20 @@ class AudioSocketServer:
                                     previous_model_text,
                                 )
                                 if final_delta_text:
-                                    cumulative_transcript = append_transcript(
+                                    updated_cumulative = append_transcript(
                                         cumulative_transcript,
                                         final_delta_text,
                                     )
-                                    final_segment = build_chunk_segment(
-                                        final_delta_text,
-                                        latest_diar_result,
-                                        remaining_offset,
-                                        remaining_end,
-                                    )
-                                    if final_segment:
-                                        session.add_transcript_segment(final_segment)
+                                    if updated_cumulative != cumulative_transcript:
+                                        cumulative_transcript = updated_cumulative
+                                        final_segment = build_chunk_segment(
+                                            final_delta_text,
+                                            latest_diar_result,
+                                            remaining_offset,
+                                            remaining_end,
+                                        )
+                                        if final_segment:
+                                            session.add_transcript_segment(final_segment)
                         except Exception as exc:
                             logger.warning(f"[AudioSocket] Final inference failed for {session_id}: {exc}")
 

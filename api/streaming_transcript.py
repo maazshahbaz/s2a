@@ -6,6 +6,48 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
+def _word_overlap_suffix_prefix(left_text: str, right_text: str, max_words: int = 64) -> int:
+    """
+    Return the largest K such that the last K words of left_text match
+    the first K words of right_text.
+    """
+    left_words = normalize_text(left_text).split()
+    right_words = normalize_text(right_text).split()
+    if not left_words or not right_words:
+        return 0
+
+    max_k = min(len(left_words), len(right_words), max_words)
+    for k in range(max_k, 0, -1):
+        if left_words[-k:] == right_words[:k]:
+            return k
+    return 0
+
+
+def _prefix_overlap_with_recent_tail(
+    existing_text: str,
+    new_text: str,
+    max_words: int = 48,
+    tail_chars: int = 1200,
+) -> int:
+    """
+    Return the largest K such that the first K words of new_text appear
+    somewhere in the recent tail of existing_text.
+    """
+    existing_clean = normalize_text(existing_text)
+    new_words = normalize_text(new_text).split()
+    if not existing_clean or not new_words:
+        return 0
+
+    recent_tail = existing_clean[-tail_chars:]
+    padded_tail = f" {recent_tail} "
+    max_k = min(len(new_words), max_words)
+    for k in range(max_k, 1, -1):
+        prefix = " ".join(new_words[:k])
+        if f" {prefix} " in padded_tail:
+            return k
+    return 0
+
+
 def extract_model_delta(model_text: str, previous_model_text: str) -> Tuple[str, str]:
     """
     Extract incremental text from the latest model output using simple, low-risk rules.
@@ -14,6 +56,8 @@ def extract_model_delta(model_text: str, previous_model_text: str) -> Tuple[str,
     - Empty output => no delta
     - Exact repeat => no delta
     - Prefix growth => emit only appended suffix
+    - Sliding-window growth => emit only non-overlapping suffix
+    - Truncated rollback => no delta
     - Otherwise treat as reset and emit full model_text
     """
     new_text = normalize_text(model_text)
@@ -27,16 +71,60 @@ def extract_model_delta(model_text: str, previous_model_text: str) -> Tuple[str,
         return "", previous
     if new_text.startswith(previous):
         return new_text[len(previous):].lstrip(), new_text
+
+    # Handle models that return sliding windows (tail of previous + new words).
+    overlap_words = _word_overlap_suffix_prefix(previous, new_text)
+    if overlap_words >= 2:
+        new_words = new_text.split()
+        suffix_words = new_words[overlap_words:]
+        if suffix_words:
+            return " ".join(suffix_words), new_text
+        return "", new_text
+
+    # If output rolls back to an earlier truncated phrase, don't re-emit.
+    if previous.endswith(new_text):
+        return "", previous
+
     return new_text, new_text
 
 
 def append_transcript(existing_text: str, new_text: str) -> str:
+    existing_clean = normalize_text(existing_text)
     clean_new = normalize_text(new_text)
     if not clean_new:
-        return normalize_text(existing_text)
-    if not existing_text:
+        return existing_clean
+    if not existing_clean:
         return clean_new
-    return f"{normalize_text(existing_text)} {clean_new}".strip()
+
+    # Drop obvious immediate duplicates.
+    if existing_clean == clean_new or existing_clean.endswith(clean_new):
+        return existing_clean
+
+    # Drop stale repeats seen in the recent transcript tail (common with
+    # model instance hopping / reset-like outputs).
+    tail_chars = max(512, len(clean_new) * 3)
+    recent_tail = existing_clean[-tail_chars:]
+    if f" {clean_new} " in f" {recent_tail} ":
+        return existing_clean
+
+    # If the new chunk starts with a phrase already present in the recent tail,
+    # trim that repeated prefix and keep only novel continuation.
+    recent_prefix_overlap = _prefix_overlap_with_recent_tail(existing_clean, clean_new)
+    if recent_prefix_overlap >= 2:
+        suffix_words = clean_new.split()[recent_prefix_overlap:]
+        if not suffix_words:
+            return existing_clean
+        clean_new = " ".join(suffix_words)
+
+    # Merge with overlap to keep a smooth flow without duplicated boundary words.
+    overlap_words = _word_overlap_suffix_prefix(existing_clean, clean_new)
+    if overlap_words > 0:
+        suffix_words = clean_new.split()[overlap_words:]
+        if not suffix_words:
+            return existing_clean
+        clean_new = " ".join(suffix_words)
+
+    return f"{existing_clean} {clean_new}".strip()
 
 
 def choose_speaker_id(diar_result: Dict, time_point: float) -> int:

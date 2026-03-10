@@ -377,7 +377,10 @@ async def stream_audio(websocket: WebSocket):
                     if not delta_text:
                         continue
 
-                    cumulative_transcript = append_transcript(cumulative_transcript, delta_text)
+                    updated_cumulative = append_transcript(cumulative_transcript, delta_text)
+                    if updated_cumulative == cumulative_transcript:
+                        continue
+                    cumulative_transcript = updated_cumulative
 
                     segment = build_chunk_segment(
                         delta_text,
@@ -445,7 +448,15 @@ async def stream_audio(websocket: WebSocket):
                         previous_model_text,
                     )
                     if final_delta_text:
-                        cumulative_transcript = append_transcript(cumulative_transcript, final_delta_text)
+                        updated_cumulative = append_transcript(
+                            cumulative_transcript,
+                            final_delta_text,
+                        )
+                        if updated_cumulative == cumulative_transcript:
+                            final_delta_text = ""
+                        else:
+                            cumulative_transcript = updated_cumulative
+                    if final_delta_text:
                         final_segment = build_chunk_segment(
                             final_delta_text,
                             latest_diar_result,
