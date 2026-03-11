@@ -73,7 +73,9 @@ class TritonPythonModel:
                     with open_dict(decoding_cfg.greedy):
                         decoding_cfg.greedy.loop_labels = True
                         decoding_cfg.greedy.use_cuda_graph_decoder = False
-                        decoding_cfg.greedy.max_symbols = 10
+                        # Allow longer token emission per streaming step to reduce
+                        # truncation on dense/long utterances.
+                        decoding_cfg.greedy.max_symbols = 50
                 if hasattr(decoding_cfg, "fused_batch_size"):
                     decoding_cfg.fused_batch_size = -1
             self.asr_model.change_decoding_strategy(decoding_cfg)
