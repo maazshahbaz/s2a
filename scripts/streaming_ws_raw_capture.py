@@ -136,6 +136,19 @@ def _to_speaker_id(raw_speaker) -> int:
     return 0
 
 
+def _word_overlap_suffix_prefix(left_text: str, right_text: str, max_words: int = 24) -> int:
+    left_words = normalize_text(left_text).split()
+    right_words = normalize_text(right_text).split()
+    if not left_words or not right_words:
+        return 0
+
+    max_k = min(len(left_words), len(right_words), max_words)
+    for k in range(max_k, 0, -1):
+        if left_words[-k:] == right_words[:k]:
+            return k
+    return 0
+
+
 def _largest_overlap_speaker(
     speaker_segments: List[Dict],
     start_t: float,
@@ -173,6 +186,66 @@ def _format_clock(seconds: float) -> str:
     mins = int(total // 60)
     secs = total - (mins * 60)
     return f"{mins:02d}:{secs:05.2f}"
+
+
+def _merge_fused_for_human_readable(
+    fused_segments: List[Dict],
+    max_gap_seconds: float = 1.2,
+) -> List[Dict]:
+    """
+    Merge adjacent same-speaker fused chunks into smoother utterance-level lines.
+    """
+    if not fused_segments:
+        return []
+
+    merged: List[Dict] = []
+    for item in sorted(fused_segments, key=lambda x: (float(x["start"]), float(x["end"]))):
+        speaker = item.get("speaker", "spk_0")
+        start_t = float(item.get("start", 0.0))
+        end_t = float(item.get("end", start_t))
+        text = normalize_text(item.get("text", ""))
+        is_final = bool(item.get("is_final", False))
+
+        if not text or text == "...":
+            continue
+
+        if not merged:
+            merged.append(
+                {
+                    "speaker": speaker,
+                    "start": round(start_t, 3),
+                    "end": round(end_t, 3),
+                    "text": text,
+                    "is_final": is_final,
+                }
+            )
+            continue
+
+        prev = merged[-1]
+        same_speaker = prev["speaker"] == speaker
+        gap = start_t - float(prev["end"])
+
+        if same_speaker and gap <= max_gap_seconds:
+            overlap = _word_overlap_suffix_prefix(prev["text"], text)
+            if overlap > 0:
+                suffix_words = text.split()[overlap:]
+                text = " ".join(suffix_words).strip()
+            if text:
+                prev["text"] = normalize_text(f"{prev['text']} {text}")
+            prev["end"] = round(max(float(prev["end"]), end_t), 3)
+            prev["is_final"] = prev["is_final"] and is_final
+        else:
+            merged.append(
+                {
+                    "speaker": speaker,
+                    "start": round(start_t, 3),
+                    "end": round(end_t, 3),
+                    "text": text,
+                    "is_final": is_final,
+                }
+            )
+
+    return merged
 
 
 def build_streaming_report(raw_rows: List[Dict]) -> Dict:
@@ -248,10 +321,11 @@ def build_streaming_report(raw_rows: List[Dict]) -> Dict:
             }
         )
 
-    for item in fused:
-        text = item["text"]
-        if not item["is_final"] and not text.endswith("..."):
-            text = f"{text}..."
+    smooth_fused = _merge_fused_for_human_readable(fused)
+    for item in smooth_fused:
+        text = normalize_text(item["text"])
+        if not text:
+            continue
         human_lines.append(
             f"[{_format_clock(item['start'])} - {_format_clock(item['end'])}] "
             f"{item['speaker']}: {text}"
@@ -389,10 +463,9 @@ async def websocket_stream_pass(
         start_message["call_metadata"] = call_metadata
 
     messages: List[Dict] = []
+    closed_before_start = False
 
     async with websockets.connect(final_url, max_size=20 * 1024 * 1024) as ws:
-        await ws.send(json.dumps(start_message))
-
         async def recv_loop():
             while True:
                 try:
@@ -429,6 +502,22 @@ async def websocket_stream_pass(
                     break
 
         recv_task = asyncio.create_task(recv_loop())
+        try:
+            await ws.send(json.dumps(start_message))
+        except websockets.ConnectionClosed:
+            closed_before_start = True
+            await recv_task
+            output_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_jsonl_path.open("w", encoding="utf-8") as f:
+                for row in messages:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            return {
+                "ws_url": final_url,
+                "session_id": session_id,
+                "message_count": len(messages),
+                "closed_before_session_start": True,
+                "output_jsonl": str(output_jsonl_path),
+            }
 
         try:
             loop = asyncio.get_running_loop()
@@ -454,6 +543,7 @@ async def websocket_stream_pass(
         "ws_url": final_url,
         "session_id": session_id,
         "message_count": len(messages),
+        "closed_before_session_start": closed_before_start,
         "output_jsonl": str(output_jsonl_path),
     }
 
