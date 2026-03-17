@@ -322,29 +322,23 @@ class Pipeline:
         chunk_paths, chunk_timings = await self.chunking.create_chunks_async(audio_path)
         
         # Step 2: Run global diarization and chunk transcription in parallel
-        global_diar_task = self._run_global_diarization(audio_path, request_id)
-        transcription_task = self._run_transcription_on_chunks(chunk_paths, request_id)
-        
         global_diar_result, transcription_results = await asyncio.gather(
-            global_diar_task,
-            transcription_task
-        )
+                self._run_global_diarization(audio_path, request_id),
+                self._run_transcription_on_chunks(chunk_paths, request_id),
+            )
         
         # Extract global segments
         global_segments = global_diar_result.get('segments', [])
         print(f"[Pipeline] Global diarization: {len(global_segments)} segments, "
               f"{global_diar_result.get('num_speakers', 0)} speakers")
         
-        # Step 3: Align global segments to chunk boundaries
-        chunk_diarization = self._align_segments_to_global(global_segments, chunk_timings)
-        
         # Step 4: Merge transcriptions with globally-consistent diarization
-        raw_transcription, labeled_transcription = await self.merger.merge_transcriptions(
-            request_id,
-            transcription_results,
-            [{'segments': segs} for segs in chunk_diarization],
-            chunk_timings
-        )
+        raw_transcription, labeled_transcription = await self.merger.merge_global(
+                request_id,
+                transcription_results,   # List[Dict] — one dict per ASR chunk
+                chunk_timings,           # List[Tuple[float,float]] — global offsets
+                global_diar_result,      # Dict — full-audio diarization result
+            )
         
         # Step 5: Run AI analysis, CSR scoring, and cleanup chunks in parallel
         if not labeled_transcription:
