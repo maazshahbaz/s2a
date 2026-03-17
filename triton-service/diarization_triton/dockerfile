@@ -1,8 +1,15 @@
 # Base image
 FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
 
+ENV LD_LIBRARY_PATH="/usr/local/cuda-13.0/targets/x86_64-linux/lib:$LD_LIBRARY_PATH"
+ENV PATH="/usr/local/cuda-13.0/bin:$PATH"
+
 RUN pip install nemo_toolkit['all']
 
+RUN pip install --no-cache-dir \
+    torchvision==0.24.0 \
+    torchaudio==2.9.0 \
+    --index-url https://download.pytorch.org/whl/cu130
 # Expose ports
 EXPOSE 3600 3601 3602
 
