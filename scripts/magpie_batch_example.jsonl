@@ -1,0 +1,3 @@
+{"text":"Hello from S2A. This is a first offline batch inference test using the public Hugging Face Magpie checkpoint.","language":"en","speaker":"Aria","apply_tn":false,"output_name":"001_first_batch_test.wav"}
+{"text":"This second prompt checks repeated synthesis inside one batch run before we move the model to staging.","language":"en","speaker":"Aria","apply_tn":false,"output_name":"002_second_prompt.wav"}
+{"text":"We can later compare this direct Hugging Face path against a server deployment once quality and latency look acceptable.","language":"en","speaker":"Aria","apply_tn":false,"output_name":"003_compare_later.wav"}
