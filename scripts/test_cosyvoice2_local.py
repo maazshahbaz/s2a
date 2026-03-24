@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import tempfile
 import sys
 import time
 from dataclasses import dataclass
@@ -164,6 +165,48 @@ def import_dependencies(cosyvoice_repo: Path):
     return torch, torchaudio, snapshot_download, AutoModel
 
 
+def prepare_prompt_wav(
+    torchaudio_mod,
+    prompt_wav: Path,
+    *,
+    min_sample_rate: int = 24000,
+    max_seconds: float = 30.0,
+):
+    info = torchaudio_mod.info(str(prompt_wav))
+    sample_rate = int(info.sample_rate)
+    num_frames = int(info.num_frames)
+    duration_sec = num_frames / sample_rate if sample_rate > 0 else 0.0
+
+    if sample_rate < min_sample_rate:
+        raise SystemExit(
+            f"Reference audio sample rate {sample_rate} Hz is too low for CosyVoice2. "
+            f"Provide a clip recorded at {min_sample_rate} Hz or higher."
+        )
+
+    if duration_sec <= max_seconds:
+        return prompt_wav, None
+
+    waveform, waveform_sr = torchaudio_mod.load(str(prompt_wav))
+    trimmed_frames = int(max_seconds * waveform_sr)
+    trimmed = waveform[:, :trimmed_frames]
+
+    temp_handle = tempfile.NamedTemporaryFile(
+        prefix=f"{prompt_wav.stem}_trimmed_",
+        suffix=".wav",
+        delete=False,
+    )
+    temp_handle.close()
+    temp_path = Path(temp_handle.name)
+    torchaudio_mod.save(str(temp_path), trimmed, waveform_sr)
+    return temp_path, {
+        "original_path": str(prompt_wav),
+        "trimmed_path": str(temp_path),
+        "original_sample_rate": sample_rate,
+        "original_duration_sec": round(duration_sec, 3),
+        "trimmed_duration_sec": round(max_seconds, 3),
+    }
+
+
 def ensure_model_dir(model_dir: Path, model_id: str, download_model: bool, snapshot_download) -> Path:
     if model_dir.exists():
         return model_dir.resolve()
@@ -211,19 +254,21 @@ def run_item(cosyvoice, torch_mod, torchaudio_mod, item: PromptItem, out_dir: Pa
     if item.text_frontend is not None:
         kwargs["text_frontend"] = item.text_frontend
 
+    prompt_wav_path, prompt_wav_note = prepare_prompt_wav(torchaudio_mod, item.prompt_wav)
+
     started = time.perf_counter()
     if item.mode == "instruct":
         generator = cosyvoice.inference_instruct2(
             item.text,
             item.instruction,
-            str(item.prompt_wav),
+            str(prompt_wav_path),
             **kwargs,
         )
     else:
         generator = cosyvoice.inference_zero_shot(
             item.text,
             item.prompt_text,
-            str(item.prompt_wav),
+            str(prompt_wav_path),
             **kwargs,
         )
 
@@ -241,6 +286,8 @@ def run_item(cosyvoice, torch_mod, torchaudio_mod, item: PromptItem, out_dir: Pa
         "instruction": item.instruction,
         "prompt_text": item.prompt_text,
         "prompt_wav": str(item.prompt_wav),
+        "prepared_prompt_wav": str(prompt_wav_path),
+        "prompt_wav_note": prompt_wav_note,
         "stream": item.stream,
         "text_frontend": item.text_frontend,
         "output_path": str(output_path),
