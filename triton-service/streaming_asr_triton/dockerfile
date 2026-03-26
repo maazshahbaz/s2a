@@ -26,4 +26,4 @@ CMD ["tritonserver", \
      "--allow-http=true", \
      "--allow-grpc=true", \
      "--allow-metrics=true", \
-     "--strict-readiness=false"]
+     "--strict-readiness=true"]

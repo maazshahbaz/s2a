@@ -33,11 +33,11 @@
       "model_name": "qwen-task-gen"
     },
     "streaming_asr": {
-      "url": "host.docker.internal:3901",
+      "url": "localhost:3901",
       "model_name": "streaming_asr"
     },
     "streaming_diar": {
-      "url": "host.docker.internal:4001",
+      "url": "localhost:4001",
       "model_name": "streaming_diar"
     }
   }

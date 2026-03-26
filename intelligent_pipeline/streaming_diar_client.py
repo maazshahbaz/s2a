@@ -1,3 +1,4 @@
+import os
 import tritonclient.grpc.aio as grpcclient_aio
 import numpy as np
 import json
@@ -10,8 +11,10 @@ class AsyncStreamingDiarClient:
 
     def __init__(self, url: str = None):
         service_config = config.get_service_config("streaming_diar")
-        self.url = url or service_config.get("url", "localhost:4001")
-        self.model_name = service_config.get("model_name", "streaming_diar")
+        env_url = os.getenv("S2A_STREAMING_DIAR_URL") or os.getenv("STREAMING_DIAR_URL")
+        env_model_name = os.getenv("S2A_STREAMING_DIAR_MODEL_NAME")
+        self.url = url or env_url or service_config.get("url", "localhost:4001")
+        self.model_name = env_model_name or service_config.get("model_name", "streaming_diar")
         self.client = None
 
     async def connect(self):

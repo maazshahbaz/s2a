@@ -30,11 +30,15 @@ class TritonPythonModel:
 
         self.target_sr = 16000
 
-        # Per-session state: accumulated audio + last diarization result
-        self._session_audio = {}       # session_id -> np.array of accumulated audio
+        # Per-session state: rolling audio window + last diarization result
+        self._session_audio = {}       # session_id -> np.array of rolling audio window
         self._session_results = {}     # session_id -> last diarization segments
+        self._session_total_samples = {}  # session_id -> total audio seen at 16 kHz
+        self._session_speaker_maps = {}   # session_id -> raw speaker id -> stable speaker id
         self._session_lock = threading.Lock()
         self._session_timestamps = {}
+        self._last_cleanup_at = 0.0
+        self._cleanup_interval_seconds = 60.0
 
         # Minimum audio duration (seconds) before running diarization
         # Sortformer needs enough context for meaningful speaker detection
@@ -95,19 +99,29 @@ class TritonPythonModel:
     def _cleanup_stale_sessions(self, max_age_seconds=3600):
         """Remove session state older than max_age_seconds."""
         now = time.time()
-        stale = [
-            sid
-            for sid, ts in self._session_timestamps.items()
-            if now - ts > max_age_seconds
-        ]
-        for sid in stale:
-            self._session_audio.pop(sid, None)
-            self._session_results.pop(sid, None)
-            self._session_timestamps.pop(sid, None)
+        with self._session_lock:
+            stale = [
+                sid
+                for sid, ts in self._session_timestamps.items()
+                if now - ts > max_age_seconds
+            ]
+            for sid in stale:
+                self._session_audio.pop(sid, None)
+                self._session_results.pop(sid, None)
+                self._session_total_samples.pop(sid, None)
+                self._session_speaker_maps.pop(sid, None)
+                self._session_timestamps.pop(sid, None)
         if stale:
             print(f"[Streaming Diar] Cleaned up {len(stale)} stale sessions")
 
-    def _run_diarization(self, audio_data, time_offset=0.0):
+    def _maybe_cleanup_stale_sessions(self):
+        now = time.time()
+        if now - self._last_cleanup_at < self._cleanup_interval_seconds:
+            return
+        self._last_cleanup_at = now
+        self._cleanup_stale_sessions()
+
+    def _run_diarization(self, session_id, audio_data, time_offset=0.0):
         """Run diarization on audio data and return normalized speaker segments."""
         import soundfile as sf
         import tempfile
@@ -148,7 +162,7 @@ class TritonPythonModel:
                     f"raw type={type(raw_segments)}"
                 )
 
-        segments = self._normalize_speaker_ids(segments)
+        segments = self._normalize_speaker_ids(session_id, segments)
         num_speakers = len({seg["speaker"] for seg in segments}) if segments else 0
         return segments, num_speakers
 
@@ -298,21 +312,24 @@ class TritonPythonModel:
 
         return None
 
-    def _normalize_speaker_ids(self, segments):
+    def _normalize_speaker_ids(self, session_id, segments):
         """
-        Normalize speaker IDs to a contiguous 0-based range.
-        This keeps downstream formatting stable when model labels are 1-based
-        or sparse/non-contiguous.
+        Normalize speaker IDs to a stable contiguous 0-based range per session.
+        This avoids speaker-id flips when diarization runs on a moving window.
         """
         if not segments:
             return []
 
-        unique_raw = sorted({int(seg.get("speaker", 0)) for seg in segments})
-        speaker_map = {raw_id: idx for idx, raw_id in enumerate(unique_raw)}
+        with self._session_lock:
+            speaker_map = self._session_speaker_maps.setdefault(session_id, {})
+            next_speaker_id = len(speaker_map)
 
         normalized = []
         for seg in segments:
             raw_id = int(seg.get("speaker", 0))
+            if raw_id not in speaker_map:
+                speaker_map[raw_id] = next_speaker_id
+                next_speaker_id += 1
             normalized.append(
                 {
                     "speaker": speaker_map.get(raw_id, 0),
@@ -355,13 +372,21 @@ class TritonPythonModel:
                 with self._session_lock:
                     if session_id not in self._session_audio:
                         self._session_audio[session_id] = np.array([], dtype=np.float32)
-                    self._session_audio[session_id] = np.concatenate(
-                        [self._session_audio[session_id], audio_data]
-                    )
+                        self._session_total_samples[session_id] = 0
+                        self._session_speaker_maps[session_id] = {}
+
+                    combined_audio = np.concatenate([self._session_audio[session_id], audio_data])
+                    max_window_samples = int(self.max_diar_window_seconds * self.target_sr)
+                    if len(combined_audio) > max_window_samples:
+                        combined_audio = combined_audio[-max_window_samples:]
+
+                    self._session_audio[session_id] = combined_audio
+                    self._session_total_samples[session_id] += len(audio_data)
                     self._session_timestamps[session_id] = time.time()
                     accumulated_audio = self._session_audio[session_id].copy()
+                    total_samples = self._session_total_samples[session_id]
 
-                audio_duration = len(accumulated_audio) / self.target_sr
+                audio_duration = total_samples / self.target_sr
 
                 # Decide whether to run diarization
                 # - Always run on final chunk
@@ -381,16 +406,13 @@ class TritonPythonModel:
                             should_run = True
 
                 if should_run:
-                    # Run diarization on a bounded trailing window so work stays stable
-                    # for long-running calls.
-                    window_offset = 0.0
+                    # Run diarization on the rolling window currently stored in memory.
                     audio_for_diar = accumulated_audio
-                    if audio_duration > self.max_diar_window_seconds:
-                        window_offset = audio_duration - self.max_diar_window_seconds
-                        start_idx = int(window_offset * self.target_sr)
-                        audio_for_diar = accumulated_audio[start_idx:]
+                    window_seconds = len(audio_for_diar) / self.target_sr
+                    window_offset = max(0.0, audio_duration - window_seconds)
 
                     segments, num_speakers = self._run_diarization(
+                        session_id,
                         audio_for_diar,
                         time_offset=window_offset,
                     )
@@ -407,7 +429,7 @@ class TritonPythonModel:
                     "audio_duration": audio_duration,
                     "is_final": is_final,
                     "diar_ran": should_run,
-                    "diar_window_seconds": min(audio_duration, self.max_diar_window_seconds),
+                    "diar_window_seconds": len(accumulated_audio) / self.target_sr,
                 }
 
                 # Cache result
@@ -420,12 +442,13 @@ class TritonPythonModel:
                     with self._session_lock:
                         self._session_audio.pop(session_id, None)
                         self._session_results.pop(session_id, None)
+                        self._session_total_samples.pop(session_id, None)
+                        self._session_speaker_maps.pop(session_id, None)
                         self._session_timestamps.pop(session_id, None)
                     print(f"[Streaming Diar] Session {session_id} finalized ({audio_duration:.1f}s, {num_speakers} speakers)")
 
-                # Periodic stale cleanup
-                if len(self._session_timestamps) > 100:
-                    self._cleanup_stale_sessions()
+                # Periodic stale cleanup, even under light load.
+                self._maybe_cleanup_stale_sessions()
 
                 output_json = json.dumps(result)
                 output_array = np.array([[output_json]], dtype=object)
@@ -459,6 +482,9 @@ class TritonPythonModel:
             del self.diar_model
             self._session_audio.clear()
             self._session_results.clear()
+            self._session_total_samples.clear()
+            self._session_speaker_maps.clear()
+            self._session_timestamps.clear()
             torch.cuda.empty_cache()
             gc.collect()
             print("[Streaming Diar] Finalized successfully")

@@ -4,7 +4,7 @@ This branch contains only the streaming ASR / diarization core.
 
 It intentionally includes:
 - Triton Python backend models for streaming ASR and streaming diarization
-- Ssync Python clients for calling those Triton models
+- Thin async Python clients for calling those Triton models
 - Config entries for `streaming_asr` and `streaming_diar`
 - A Docker Compose stack for the two streaming Triton services
 
@@ -48,12 +48,17 @@ Ports:
 ## Health Checks
 
 ```powershell
-curl http://localhost:3900/v2/health/ready
-curl http://localhost:4000/v2/health/ready
+curl http://localhost:3900/v2/models/streaming_asr/ready
+curl http://localhost:4000/v2/models/streaming_diar/ready
 ```
 
 ## Notes For Backend Integration
 
 - The clients read endpoints from `intelligent_pipeline/config.json`.
-- Current config uses `host.docker.internal`; backend integration can change that to container DNS or another service address.
+- The clients also support env overrides:
+  - `S2A_STREAMING_ASR_URL`
+  - `S2A_STREAMING_DIAR_URL`
+  - `S2A_STREAMING_ASR_MODEL_NAME`
+  - `S2A_STREAMING_DIAR_MODEL_NAME`
+- The default config uses `localhost` for streaming endpoints. Container-to-container integrations should override that with service DNS or another explicit address.
 - This branch is model-serving core only. Transport, session orchestration, and transcript delivery are expected to be handled by the backend integration layer.

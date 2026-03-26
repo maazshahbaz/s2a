@@ -6,7 +6,7 @@ import gc
 import torch
 import threading
 import time
-from omegaconf import OmegaConf, open_dict
+from omegaconf import open_dict
 
 
 class TritonPythonModel:
@@ -55,6 +55,8 @@ class TritonPythonModel:
         self._sessions = {}  # session_id -> dict of cache tensors
         self._session_lock = threading.Lock()
         self._session_timestamps = {}
+        self._last_cleanup_at = 0.0
+        self._cleanup_interval_seconds = 60.0
 
         # Warmup
         self._warmup()
@@ -170,7 +172,7 @@ class TritonPythonModel:
                     keep_all_outputs=False,
                     previous_hypotheses=None,
                     previous_pred_out=None,
-                    drop_extra_pre_encoded=None,
+                    drop_extra_pre_encoded=self.pre_encode_cache_size,
                     return_transcription=True,
                 )
 
@@ -183,16 +185,25 @@ class TritonPythonModel:
     def _cleanup_stale_sessions(self, max_age_seconds=3600):
         """Remove session caches older than max_age_seconds."""
         now = time.time()
-        stale = [
-            sid
-            for sid, ts in self._session_timestamps.items()
-            if now - ts > max_age_seconds
-        ]
-        for sid in stale:
-            self._sessions.pop(sid, None)
-            self._session_timestamps.pop(sid, None)
+        with self._session_lock:
+            stale = [
+                sid
+                for sid, ts in self._session_timestamps.items()
+                if now - ts > max_age_seconds
+            ]
+            for sid in stale:
+                self._sessions.pop(sid, None)
+                self._session_timestamps.pop(sid, None)
         if stale:
             print(f"[Streaming ASR] Cleaned up {len(stale)} stale sessions")
+            torch.cuda.empty_cache()
+
+    def _maybe_cleanup_stale_sessions(self):
+        now = time.time()
+        if now - self._last_cleanup_at < self._cleanup_interval_seconds:
+            return
+        self._last_cleanup_at = now
+        self._cleanup_stale_sessions()
 
     def execute(self, requests):
         """Execute cache-aware streaming inference on audio chunks."""
@@ -267,7 +278,7 @@ class TritonPythonModel:
                         keep_all_outputs=False,
                         previous_hypotheses=session["previous_hypotheses"],
                         previous_pred_out=session["pred_out_stream"],
-                        drop_extra_pre_encoded=None,
+                        drop_extra_pre_encoded=self.pre_encode_cache_size,
                         return_transcription=True,
                     )
 
@@ -307,9 +318,8 @@ class TritonPythonModel:
                         self._session_timestamps.pop(session_id, None)
                     print(f"[Streaming ASR] Session {session_id} finalized after {output_data['step_num']} steps")
 
-                # Periodic cleanup of stale sessions
-                if len(self._session_timestamps) > 100:
-                    self._cleanup_stale_sessions()
+                # Periodic cleanup of stale sessions, even under light load.
+                self._maybe_cleanup_stale_sessions()
 
                 output_json = json.dumps(output_data)
                 output_array = np.array([[output_json]], dtype=object)
@@ -342,6 +352,7 @@ class TritonPythonModel:
         try:
             del self.asr_model
             self._sessions.clear()
+            self._session_timestamps.clear()
             torch.cuda.empty_cache()
             gc.collect()
             print("[Streaming ASR] Finalized successfully")
