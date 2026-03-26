@@ -25,7 +25,6 @@ class TritonPythonModel:
         self.asr_model = self.asr_model.to(self.device)
         self.asr_model.eval()
 
-        # H100 optimization: bfloat16
         if torch.cuda.is_bf16_supported():
             self.asr_model = self.asr_model.to(dtype=torch.bfloat16)
             self.amp_dtype = torch.bfloat16
@@ -34,7 +33,6 @@ class TritonPythonModel:
             self.amp_dtype = torch.float16
             print("[Streaming ASR] Using float16 precision")
 
-        # Enable Flash Attention
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
             torch.backends.cuda.enable_flash_sdp(True)
             print("[Streaming ASR] Enabled Flash Attention")
@@ -75,8 +73,6 @@ class TritonPythonModel:
                     with open_dict(decoding_cfg.greedy):
                         decoding_cfg.greedy.loop_labels = True
                         decoding_cfg.greedy.use_cuda_graph_decoder = False
-                        # Allow longer token emission per streaming step to reduce
-                        # truncation on dense/long utterances.
                         decoding_cfg.greedy.max_symbols = 50
                 if hasattr(decoding_cfg, "fused_batch_size"):
                     decoding_cfg.fused_batch_size = -1
@@ -124,7 +120,6 @@ class TritonPythonModel:
             "previous_hypotheses": None,
             "pred_out_stream": None,
             "step_num": 0,
-            "cumulative_text": "",
         }
 
         with self._session_lock:
@@ -301,11 +296,9 @@ class TritonPythonModel:
                         text = str(hyp)
                 else:
                     text = ""
-                session["cumulative_text"] = text
-
                 output_data = {
                     "text": text,
-                    "word_timestamps": [],  # conformer_stream_step doesn't return per-word timestamps
+                    "word_timestamps": [],
                     "session_id": session_id,
                     "is_final": is_final,
                     "step_num": session["step_num"],

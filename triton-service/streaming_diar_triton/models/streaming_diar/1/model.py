@@ -25,7 +25,6 @@ class TritonPythonModel:
         self.diar_model = self.diar_model.to(self.device)
         self.diar_model.eval()
 
-        # Configure for low-latency streaming
         self._configure_streaming()
 
         self.target_sr = 16000
@@ -40,13 +39,8 @@ class TritonPythonModel:
         self._last_cleanup_at = 0.0
         self._cleanup_interval_seconds = 60.0
 
-        # Minimum audio duration (seconds) before running diarization
-        # Sortformer needs enough context for meaningful speaker detection
         self.min_diar_duration = 3.0
         self.diar_interval_seconds = 5.0
-        # Keep diarization cost bounded for long sessions.
-        # We only need near-real-time speaker turns for live updates; full-call
-        # diarization still runs in the post-call batch pipeline.
         self.max_diar_window_seconds = 90.0
 
         # Warmup
