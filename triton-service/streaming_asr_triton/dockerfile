@@ -1,0 +1,29 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+RUN pip install --no-cache-dir "numpy<2" scipy soundfile librosa "nemo_toolkit[asr]"
+
+# Pre-download model during build
+RUN python3 -c "import nemo.collections.asr as nemo_asr; nemo_asr.models.ASRModel.from_pretrained('nvidia/nemotron-speech-streaming-en-0.6b')"
+
+# Expose ports
+EXPOSE 3900 3901 3902
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=3900", \
+     "--grpc-port=3901", \
+     "--metrics-port=3902", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]

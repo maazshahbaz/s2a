@@ -1,0 +1,29 @@
+# Base image
+FROM nvcr.io/nvidia/tritonserver:25.10-trtllm-python-py3
+
+RUN pip install --no-cache-dir "numpy<2" scipy soundfile "nemo_toolkit[asr]"
+
+# Pre-download model during build
+RUN python3 -c "from nemo.collections.asr.models import SortformerEncLabelModel; SortformerEncLabelModel.from_pretrained('nvidia/diar_streaming_sortformer_4spk-v2.1')"
+
+# Expose ports
+EXPOSE 4000 4001 4002
+
+# Set working directory
+WORKDIR /models
+
+# Start Triton server
+CMD ["tritonserver", \
+     "--model-repository=/models", \
+     "--log-verbose=1", \
+     "--log-info=true", \
+     "--log-warning=true", \
+     "--log-error=true", \
+     "--exit-on-error=false", \
+     "--http-port=4000", \
+     "--grpc-port=4001", \
+     "--metrics-port=4002", \
+     "--allow-http=true", \
+     "--allow-grpc=true", \
+     "--allow-metrics=true", \
+     "--strict-readiness=false"]
