@@ -16,6 +16,14 @@
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"
     },
+    "tts": {
+      "url": "http://host.docker.internal:3950",
+      "model_name": "cosyvoice2",
+      "sample_rate": 24000,
+      "reference_sample_rate": 16000,
+      "max_reference_seconds": 30,
+      "timeout_sec": 600
+    },
     "csr_scoring": {
       "url": "host.docker.internal:3701",
       "model_name": "mistral-nemo"

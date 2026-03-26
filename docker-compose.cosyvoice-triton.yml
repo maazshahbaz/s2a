@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  cosyvoice2-triton-server:
+    image: ${COSYVOICE_TTS_IMAGE:-soar97/triton-cosyvoice:25.06}
+    container_name: cosyvoice2-triton-server
+    ports:
+      - "${COSYVOICE_TTS_HTTP_PORT:-3950}:8000"
+      - "${COSYVOICE_TTS_GRPC_PORT:-3951}:8001"
+      - "${COSYVOICE_TTS_METRICS_PORT:-3952}:8002"
+    volumes:
+      - ./.cache/cosyvoice-triton/workspace:/workspace
+      - ./.cache/cosyvoice-triton/huggingface:/root/.cache/huggingface
+      - ./.cache/cosyvoice-triton/modelscope:/root/.cache/modelscope
+    environment:
+      - PYTHONIOENCODING=utf-8
+      - NVIDIA_VISIBLE_DEVICES=${COSYVOICE_TTS_GPU:-0}
+      - CUDA_VISIBLE_DEVICES=${COSYVOICE_TTS_GPU:-0}
+      - HF_HOME=/root/.cache/huggingface
+      - MODELSCOPE_CACHE=/root/.cache/modelscope
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    shm_size: "2gb"
+    command: >
+      /bin/bash -lc "
+      pip install modelscope &&
+      cd /workspace &&
+      if [ ! -d CosyVoice/.git ]; then
+        git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git CosyVoice;
+      fi &&
+      cd CosyVoice &&
+      git submodule update --init --recursive &&
+      cd runtime/triton_trtllm &&
+      bash run.sh 0 3
+      "
+    restart: unless-stopped
