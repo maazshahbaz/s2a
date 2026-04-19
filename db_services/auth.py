@@ -28,7 +28,9 @@ from generated.prisma import Prisma
 # CONFIGURATION
 # ======================================================
 
-API_KEY_SECRET = os.environ.get("API_KEY_SECRET", "change-me")  # Use env var in production
+API_KEY_SECRET = os.environ.get("API_KEY_SECRET")
+if not API_KEY_SECRET:
+    raise RuntimeError("API_KEY_SECRET environment variable must be set")
 
 
 # ======================================================

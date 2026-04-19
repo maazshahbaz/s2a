@@ -72,8 +72,8 @@ services:
       - S2A_NUM_WORKERS=1
       - S2A_API_HOST=0.0.0.0
       - S2A_API_PORT=8001
-      - API_KEY_SECRET=${API_KEY_SECRET:-REDACTED_API_KEY_SECRET}
-      - HMAC_SECRET=REDACTED_HMAC_SECRET
+      - API_KEY_SECRET=${API_KEY_SECRET}
+      - HMAC_SECRET=${HMAC_SECRET}
     networks:
       - s2a-network-dev
     runtime: nvidia
@@ -103,14 +103,14 @@ services:
     env_file:
       - ./api_portal/.env.development
     environment:
-      - HMAC_SECRET=REDACTED_HMAC_SECRET
+      - HMAC_SECRET=${HMAC_SECRET}
       - BACKEND_URL=http://s2a-api-dev:8001/v1
       - NODE_ENV=development
-      - NEXTAUTH_URL=https://dev.bytepulseai.com
-      - AZURE_AD_CLIENT_ID=REDACTED_AZURE_AD_CLIENT_ID
-      - AZURE_AD_CLIENT_SECRET=REDACTED_AZURE_AD_CLIENT_SECRET
-      - AZURE_AD_TENANT_ID=REDACTED_AZURE_AD_TENANT_ID
-      - NEXTAUTH_SECRET=REDACTED_NEXTAUTH_SECRET
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - AZURE_AD_CLIENT_ID=${AZURE_AD_CLIENT_ID}
+      - AZURE_AD_CLIENT_SECRET=${AZURE_AD_CLIENT_SECRET}
+      - AZURE_AD_TENANT_ID=${AZURE_AD_TENANT_ID}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

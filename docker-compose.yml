@@ -42,8 +42,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
       # Database (from .env or defaults)
-      - DATABASE_URL=${DATABASE_URL:-postgresql://s2a_user:s2a_pass@db:5432/s2a}
-      - API_KEY_SECRET=${API_KEY_SECRET:-your-secure-secret-min-32-chars}
+      - DATABASE_URL=${DATABASE_URL}
+      - API_KEY_SECRET=${API_KEY_SECRET}
 
       # Redis connection (REQUIRED)
       - S2A_REDIS_HOST=redis

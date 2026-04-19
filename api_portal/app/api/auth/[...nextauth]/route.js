@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { signPayload } from "../../../../lib/hmac";
 
-console.log("[NextAuth] Loaded secret:", process.env.NEXTAUTH_SECRET ? "YES (len=" + process.env.NEXTAUTH_SECRET.length + ")" : "NO");
+console.log("[NextAuth] Loaded secret:", process.env.NEXTAUTH_SECRET ? "YES" : "NO");
 
 export const authOptions = {
   providers: [
@@ -13,7 +13,7 @@ export const authOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
-  debug: true, // Enable NextAuth debug mode
+  debug: process.env.NODE_ENV === "development",
   session: {
     strategy: "jwt", // or "database"
   },
@@ -63,9 +63,6 @@ export const authOptions = {
             return false;
           }
 
-          console.log(
-            `[NextAuth] Secret configured: ${secret.substring(0, 4)}...`
-          );
           console.log(`[NextAuth] Backend URL: ${backendUrl}`);
 
           // Check if user exists
